@@ -1,5 +1,37 @@
 import { expect, test } from './fixtures'
 
+test('brand and diagram title share a text baseline without shifting toolbar icons', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
+  for (const width of [1280, 844, 701, 375]) {
+    await page.setViewportSize({ width, height: 720 })
+    const metrics = await page.evaluate(() => {
+      const baseline = (selector: string) => {
+        const marker = document.createElement('span')
+        marker.style.cssText = 'display:inline-block;width:0;height:0;padding:0;margin:0;vertical-align:baseline'
+        document.querySelector(selector)!.append(marker)
+        const y = marker.getBoundingClientRect().top
+        marker.remove()
+        return y
+      }
+      const center = (selector: string) => {
+        const bounds = document.querySelector(selector)!.getBoundingClientRect()
+        return bounds.top + bounds.height / 2
+      }
+      return {
+        brandBaseline: baseline('.brand-name'),
+        titleBaseline: baseline('.diagram-trigger > span:first-child'),
+        logoCenter: center('.brand-mark'),
+        actionCenter: center('.actions > button'),
+        titleCenter: center('.diagram-trigger'),
+      }
+    })
+    if (width > 700) expect(Math.abs(metrics.brandBaseline - metrics.titleBaseline)).toBeLessThan(0.5)
+    else expect(Math.abs(metrics.titleCenter - metrics.actionCenter)).toBeLessThan(0.5)
+    expect(Math.abs(metrics.logoCenter - metrics.actionCenter)).toBeLessThan(0.5)
+  }
+})
+
 test('one compact header leaves all remaining space to the canvas on desktop and small screens', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
