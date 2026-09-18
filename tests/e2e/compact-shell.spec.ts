@@ -3,6 +3,9 @@ import { expect, test } from './fixtures'
 test('one compact header leaves all remaining space to the canvas on desktop and small screens', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
+  await expect(page.getByRole('link', { name: 'дерево·дел', exact: true })).toBeVisible()
+  await expect(page.locator('.brand-name')).toHaveText('дерево·дел')
+  await expect(page).toHaveTitle(/ — дерево·дел$/)
   await expect(page.locator('footer, .workspace-heading, .toolbar, .canvas-caption')).toHaveCount(0)
   const actions = page.getByRole('button', { name: 'Действия с клеточкой', exact: true })
   await page.locator('[data-cell-id="root"]').click()

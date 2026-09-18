@@ -61,7 +61,7 @@ export const Cell = memo(function Cell({ data, draggable }: NodeProps<FlowCell>)
     data-layout-ready={String(data.positioned)}
     data-cell-id={node.id} data-parent-id={node.parentId ?? ''} data-order={data.index}
     data-status={node.status} data-active={String(data.active)} data-text={node.text}
-    data-editing-by={editingBy} title={details} aria-label={`${text}. ${details}`}>
+    data-editing-by={editingBy} aria-label={`${text}. ${details}`}>
     {node.parentId !== null && <Handle type="target" position={Position.Left} />}
     {editing ? <textarea ref={editor} className="nodrag nopan nowheel cell-editor" aria-label="Текст клеточки"
       value={edit.draft} rows={1} onChange={event => data.onDraft(event.target.value)}

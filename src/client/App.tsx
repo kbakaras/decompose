@@ -73,7 +73,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const others = participants.filter(person => person.name && person.clientId !== session.doc.clientID)
   const documentTitle = diagramTitle(tree.nodes.get(ROOT_ID)?.text ?? '')
   const textAlign = readTextAlign(session.doc)
-  useEffect(() => { document.title = `${documentTitle} — Decompose` }, [documentTitle])
+  useEffect(() => { document.title = `${documentTitle} — дерево·дел` }, [documentTitle])
 
   useEffect(() => {
     if (!actionsOpen) return

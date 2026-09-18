@@ -107,16 +107,16 @@ export function Application() {
 
   return <div className="app" aria-busy={switching}>
     <header className="topbar" ref={setHeader}>
-      <a href="/" className="brand" aria-label="Decompose" onClick={event => {
+      <a href="/" className="brand" aria-label="дерево·дел" onClick={event => {
         if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return
         event.preventDefault()
         void navigate('/')
-      }}><img className="brand-mark" src="/brand/logo.png" alt="" width="28" height="28" /><span className="brand-name">decompose</span></a>
+      }}><img className="brand-mark" src="/brand/logo.png" alt="" width="28" height="28" /><span className="brand-name">дерево·дел</span></a>
     </header>
     {session && header
       ? <App key={session.doc.clientID} session={session} header={header} switching={switching}
         navigate={navigate} registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
-      : <div className="loading">{error ? <a href="/" onClick={event => { event.preventDefault(); void navigate('/') }}>Вернуться к основной схеме</a> : 'Открываем Decompose…'}</div>}
+      : <div className="loading">{error ? <a href="/" onClick={event => { event.preventDefault(); void navigate('/') }}>Вернуться к основной схеме</a> : 'Открываем дерево·дел…'}</div>}
     {switching && session && showLoadingNotice && <div className="navigation-notice" role="status">Открываем схему…</div>}
     {dialog}
     {error && <div className="notice navigation-error" role="alert"><span>Не удалось открыть схему: {error}</span>
