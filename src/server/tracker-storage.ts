@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createUuid } from '../shared/uuid'
 import * as Y from 'yjs'
 import { SQLite, schema, upsertQuery } from '@hocuspocus/extension-sqlite'
 import type { onStoreDocumentPayload } from '@hocuspocus/server'
@@ -43,7 +43,7 @@ export class TrackerStorage extends SQLite {
       const existing = this.findTracker(key)
       if (existing) return { item: existing, created: false }
       const doc = new Y.Doc()
-      const id = randomUUID()
+      const id = createUuid()
       const updatedAt = Date.now()
       try {
         initializeDocument(doc)

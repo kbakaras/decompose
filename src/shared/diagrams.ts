@@ -14,5 +14,5 @@ export function isDiagramId(value: unknown): value is string {
 }
 
 export function diagramUrl(id: string): string {
-  return `/?diagram=${encodeURIComponent(id)}`
+  return `./?diagram=${encodeURIComponent(id)}`
 }

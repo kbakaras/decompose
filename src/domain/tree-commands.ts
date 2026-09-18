@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { createUuid } from '../shared/uuid'
 import {
   ROOT_ID,
   createNodeRecord,
@@ -47,7 +48,7 @@ export class DomainError extends Error {
 export class TreeCommands {
   constructor(
     private readonly doc: Y.Doc,
-    private readonly createId: IdFactory = () => globalThis.crypto.randomUUID(),
+    private readonly createId: IdFactory = createUuid,
   ) {}
 
   createChild(parentId: NodeId, text = ''): NodeId {

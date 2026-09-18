@@ -11,7 +11,7 @@ async function ready(page: Page, id: string) {
 }
 async function select(page: Page, id: string) {
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.locator(`.diagrams-list a[href="/?diagram=${id}"]`).click()
+  await page.locator(`.diagrams-list a[href="./?diagram=${id}"]`).click()
 }
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 

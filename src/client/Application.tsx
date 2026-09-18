@@ -5,6 +5,7 @@ import { useIdentityPrompt } from './IdentityPrompt'
 import { parseDiagramRoute } from '../shared/diagram-route'
 import { trackerUrl, type TrackerSummary } from '../shared/tracker'
 import { resolveTracker, TrackerCreationCancelled } from './tracker-catalog'
+import { appBaseUrl, appUrl } from './app-url'
 
 export function Application() {
   const { requestIdentity, editIdentity, cancelIdentity, dialog } = useIdentityPrompt()
@@ -33,7 +34,7 @@ export function Application() {
   }, [])
 
   const navigate = useCallback((href: string, mode: 'push' | 'pop' | 'initial' = 'push'): Promise<void> => {
-    const url = new URL(href, location.href)
+    const url = new URL(href, appBaseUrl)
     const currentGeneration = ++generation.current
     cancelIdentity()
     pending.current?.abort()
@@ -54,12 +55,12 @@ export function Application() {
       if (currentGeneration !== generation.current) return
       let candidate: Session | null = null
       try {
-        const route = parseDiagramRoute(url)
+        const route = parseDiagramRoute(url, new URL(appBaseUrl))
         let tracker: TrackerSummary | undefined
         if (route.kind === 'tracker') {
           tracker = await resolveTracker(route.key, controller.signal, requestIdentity)
           controller.signal.throwIfAborted()
-          url.pathname = trackerUrl(route.key)
+          url.pathname = appUrl(trackerUrl(route.key)).pathname
           url.search = ''
         }
         const id = route.kind === 'diagram' ? route.id : tracker!.id
@@ -123,11 +124,11 @@ export function Application() {
 
   return <div className="app" aria-busy={switching}>
     <header className="topbar" ref={setHeader}>
-      <a href="/" className="brand" aria-label="дерево·дел" onClick={event => {
+      <a href="./" className="brand" aria-label="дерево·дел" onClick={event => {
         if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return
         event.preventDefault()
-        void navigate('/')
-      }}><img className="brand-mark" src="/brand/logo.png" alt="" width="28" height="28" /><span className="brand-name">дерево·дел</span></a>
+        void navigate('./')
+      }}><img className="brand-mark" src={appUrl('brand/logo.png').href} alt="" width="28" height="28" /><span className="brand-name">дерево·дел</span></a>
     </header>
     {session && header
       ? <App key={session.doc.clientID} session={session} header={header} switching={switching}
@@ -136,7 +137,7 @@ export function Application() {
         <p>Дерево задачи ещё не создано.</p>
         <button onClick={() => { void navigate(cancelledTracker, 'initial') }}>Создать дерево задачи</button>{' '}
       </> : !error && 'Открываем дерево·дел…'}
-        {(error || cancelledTracker) && <a href="/" onClick={event => { event.preventDefault(); void navigate('/') }}>Вернуться к основной схеме</a>}
+        {(error || cancelledTracker) && <a href="./" onClick={event => { event.preventDefault(); void navigate('./') }}>Вернуться к основной схеме</a>}
       </div>}
     {switching && session && showLoadingNotice && <div className="navigation-notice" role="status">Открываем схему…</div>}
     {dialog}

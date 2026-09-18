@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net'
 import { mkdirSync } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { createUuid } from '../shared/uuid'
 import { resolve } from 'node:path'
 import express, { type ErrorRequestHandler } from 'express'
 import * as Y from 'yjs'
@@ -10,6 +11,7 @@ import { createImportedDocument, initializeDocument, getStructures, readText, RO
 import { diagramTitle, normalizeTitle, isDiagramId, type DiagramSummary } from '../shared/diagrams'
 import { ImportError, IMPORT_JSON_LIMIT } from '../shared/diagram-import'
 import { normalizeTrackerKey } from '../shared/tracker'
+import { relativeAppRoot, setHtmlBase } from '../shared/app-base'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
   mkdirSync(options.dataDir, { recursive: true })
@@ -59,7 +61,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   })
   app.post('/api/diagrams/import', express.json({ limit: IMPORT_JSON_LIMIT }), (request, response) => {
     const doc = createImportedDocument(request.body)
-    const id = randomUUID()
+    const id = createUuid()
     try {
       const title = diagramTitle(readText(getStructures(doc).nodes.get(ROOT_ID)!))
       storage.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
@@ -98,7 +100,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
       response.status(400).json({ error: 'Название должно содержать от 1 до 500 символов' })
       return
     }
-    const id = randomUUID()
+    const id = createUuid()
     const doc = new Y.Doc()
     try {
       initializeDocument(doc)
@@ -138,9 +140,12 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
         : status === 500 ? 'Не удалось выполнить запрос' : 'Некорректный запрос' })
   }
   app.use('/api', apiError)
-  app.use(express.static(options.clientDir, { maxAge: 0 }))
-  app.get('/', (_request, response) => response.sendFile(resolve(options.clientDir, 'index.html')))
-  app.get('/tracker/:key', (_request, response) => response.sendFile(resolve(options.clientDir, 'index.html')))
+  let shell: Promise<string> | undefined
+  app.get(['/', '/index.html', '/tracker/:key'], async (request, response) => {
+    shell ??= readFile(resolve(options.clientDir, 'index.html'), 'utf8').catch(error => { shell = undefined; throw error })
+    response.type('html').set('Cache-Control', 'no-cache').send(setHtmlBase(await shell, relativeAppRoot(request.path)))
+  })
+  app.use(express.static(options.clientDir, { maxAge: 0, index: false }))
   const server = transport.httpServer
   server.removeAllListeners('request')
   server.on('request', app)

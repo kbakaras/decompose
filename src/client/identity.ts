@@ -1,3 +1,5 @@
+import { createUuid } from '../shared/uuid'
+
 export interface Identity { id: string; name: string | null; color: string }
 
 export const identityKey = 'decompose:participant:v1'
@@ -13,7 +15,7 @@ export function initials(name: string): string {
   return (words.length > 1 ? [...words[0]][0] + [...words.at(-1)!][0] : [...name].slice(0, 2).join('')).toLocaleUpperCase()
 }
 
-export function createIdentityStore(storage: () => Pick<Storage, 'getItem' | 'setItem'>, randomId = () => crypto.randomUUID()) {
+export function createIdentityStore(storage: () => Pick<Storage, 'getItem' | 'setItem'>, randomId = createUuid) {
   let id: string | null = null
   let name: string | null = null
   try {

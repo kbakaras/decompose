@@ -81,7 +81,7 @@ test('profile survives reload, switching and offline; rename keeps identity, con
   await page.getByRole('button', { name: 'Отменить действие', exact: true }).click()
   await expect(root(page)).toHaveAttribute('data-status', 'open')
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.locator(`.diagrams-list a[href="${b}"]`).click()
+  await page.locator(`.diagrams-list a[href=".${b}"]`).click()
   await ready(page)
   await page.reload()
   await ready(page)

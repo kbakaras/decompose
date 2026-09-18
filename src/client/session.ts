@@ -8,10 +8,14 @@ import { browserIdentity, refreshIdentity, subscribeIdentity } from './identity'
 import { readParticipants, type Participant } from './presence'
 import { isTrackerSummary, type TrackerSummary } from '../shared/tracker'
 import { readTrackerCatalog, rememberTrackers } from './tracker-catalog'
+import { collaborationUrl } from './collaboration-url'
+import { appBaseUrl, appUrl } from './app-url'
 export type { Participant } from './presence'
 
 export async function openSession(id = 'main', signal?: AbortSignal, tracker?: TrackerSummary) {
   if (!isDiagramId(id)) throw new Error('Некорректная ссылка на схему')
+  // Ошибка создания профиля не должна оставлять открытые ресурсы сессии.
+  browserIdentity()
   tracker ??= readTrackerCatalog().find(item => item.id === id)
   const doc = new Y.Doc()
   const persistence = new IndexeddbPersistence(`decompose:${id}:v1`, doc)
@@ -29,7 +33,7 @@ export async function openSession(id = 'main', signal?: AbortSignal, tracker?: T
   try {
     signal?.throwIfAborted()
     if (id !== 'main' && !getStructures(doc).nodes.has(ROOT_ID)) {
-      const response = await fetch(`/api/diagrams/${id}`, { cache: 'no-store', signal: AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]) })
+      const response = await fetch(appUrl(`api/diagrams/${id}`), { cache: 'no-store', signal: AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]) })
       if (response.status === 404) throw new Error('Схема не найдена')
       if (!response.ok) throw new Error('Сервер не смог открыть схему')
       const summary: unknown = await response.json()
@@ -47,9 +51,8 @@ export async function openSession(id = 'main', signal?: AbortSignal, tracker?: T
     throw error
   }
   const history = new DocumentHistory(doc)
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const provider = new HocuspocusProvider({
-    url: `${protocol}//${location.host}/collaboration`,
+    url: collaborationUrl(appBaseUrl),
     name: id,
     document: doc,
   })

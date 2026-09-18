@@ -11,7 +11,7 @@ export default defineConfig({
   },
   webServer: {
     command: 'tsx tests/serve.ts',
-    url: 'http://127.0.0.1:4173/healthz',
+    url: 'http://127.0.0.1:4183/healthz',
     reuseExistingServer: false,
   },
 })

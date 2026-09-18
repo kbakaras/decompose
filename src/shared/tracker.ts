@@ -17,7 +17,7 @@ export function isTrackerSummary(value: unknown): value is TrackerSummary {
     && Number.isSafeInteger(item.updatedAt) && item.updatedAt >= 0
 }
 
-export function trackerUrl(key: string): string { return `/tracker/${encodeURIComponent(key)}` }
+export function trackerUrl(key: string): string { return `tracker/${encodeURIComponent(key)}` }
 export function trackerSearch(text: string): string { return normalizeTitle(text).toLowerCase() }
 export function trackerLabel(title: string, key?: string): string {
   return key && title && title !== key ? `${key} · ${title}` : title || key || ''

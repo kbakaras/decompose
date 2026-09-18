@@ -1,4 +1,5 @@
 import { isTrackerSummary, trackerSearch, type TrackerSummary } from '../shared/tracker'
+import { appUrl } from './app-url'
 
 const catalogKey = 'decompose:tracker:v1'
 const memory = new Map<string, TrackerSummary>()
@@ -35,7 +36,7 @@ export async function resolveTracker(key: string, signal: AbortSignal, requestId
   if (!navigator.onLine) return offline()
   let response: Response
   try {
-    response = await fetch(`/api/tracker/${encodeURIComponent(key)}`, {
+    response = await fetch(appUrl(`api/tracker/${encodeURIComponent(key)}`), {
       cache: 'no-store', signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
     })
   } catch (error) {
@@ -47,7 +48,7 @@ export async function resolveTracker(key: string, signal: AbortSignal, requestId
   if (response.status === 404) {
     if (!await requestIdentity()) throw new TrackerCreationCancelled()
     signal.throwIfAborted()
-    response = await fetch(`/api/tracker/${encodeURIComponent(key)}`, {
+    response = await fetch(appUrl(`api/tracker/${encodeURIComponent(key)}`), {
       method: 'POST', signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
     }).catch(() => {
       throw new Error('Не удалось завершить создание. Повтори открытие ссылки: если схема уже сохранена, откроется она же.')

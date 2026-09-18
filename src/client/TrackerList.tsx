@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { isTrackerSummary, TRACKER_PAGE_SIZE, trackerLabel, trackerUrl, type TrackerPage, type TrackerSummary } from '../shared/tracker'
 import { cachedTrackerSearch, rememberTrackers } from './tracker-catalog'
+import { appUrl } from './app-url'
 
 export function TrackerList({ id, navigate }: { id: string; navigate: (url: string) => void }) {
   const input = useRef<HTMLInputElement>(null)
@@ -19,7 +20,7 @@ export function TrackerList({ id, navigate }: { id: string; navigate: (url: stri
     const timer = window.setTimeout(async () => {
       try {
         if (!navigator.onLine) throw new Error('offline')
-        const response = await fetch(`/api/tracker?q=${encodeURIComponent(query)}&offset=${offset}`, {
+        const response = await fetch(appUrl(`api/tracker?q=${encodeURIComponent(query)}&offset=${offset}`), {
           cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
         })
         if (!response.ok) throw new Error('Не удалось загрузить задачи')

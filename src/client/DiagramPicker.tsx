@@ -4,6 +4,7 @@ import { readYedFile } from './yed-import'
 import { trackerLabel, type TrackerSummary } from '../shared/tracker'
 import { readTrackerCatalog, rememberTrackers } from './tracker-catalog'
 import { TrackerList } from './TrackerList'
+import { appUrl } from './app-url'
 
 const catalogKey = 'decompose:diagrams:v1'
 function readCatalog(): DiagramSummary[] {
@@ -48,7 +49,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
     try {
       const data = await readYedFile(file)
       if (!mounted.current || !await requestIdentity() || !mounted.current) return
-      const response = await fetch('/api/diagrams/import', {
+      const response = await fetch(appUrl('api/diagrams/import'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
         signal: AbortSignal.timeout(30000),
       }).catch(() => {
@@ -92,7 +93,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
     setItems(readCatalog())
     setLoading(true)
     setMessage('')
-    fetch('/api/diagrams', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), cache: 'no-store' })
+    fetch(appUrl('api/diagrams'), { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), cache: 'no-store' })
       .then(async response => {
         if (!response.ok) throw new Error('Не удалось загрузить список')
         const remote: DiagramSummary[] = await response.json()
@@ -151,7 +152,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
         setMessage('')
         try {
           if (!await requestIdentity()) { setCreating(false); return }
-          const response = await fetch('/api/diagrams', {
+          const response = await fetch(appUrl('api/diagrams'), {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: name.trim() }),
           })
           if (!response.ok) throw new Error('Не удалось создать схему. Проверь соединение и попробуй ещё раз.')
