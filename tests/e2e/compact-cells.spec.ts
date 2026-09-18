@@ -25,7 +25,8 @@ test('compact cards show only text; Enter saves, a separate Enter creates a sibl
   await expect.poll(() => card.evaluate(element => element.clientHeight)).toBeLessThan(46)
   await expect(card).toHaveCSS('background-color', 'rgb(255, 227, 161)')
   await expect(card.locator('.cell-text')).toHaveCSS('color', 'rgb(32, 37, 28)')
-  await expect(card).toHaveCSS('box-shadow', 'rgba(237, 172, 39, 0.2) 0px 0px 0px 3px, rgba(65, 71, 46, 0.04) 0px 5px 15px 0px')
+  await expect(card).toHaveCSS('border-color', 'rgb(168, 107, 8)')
+  await expect(card).toHaveCSS('box-shadow', 'rgb(168, 107, 8) 0px 0px 0px 2px, rgba(237, 172, 39, 0.2) 0px 0px 0px 5px, rgba(65, 71, 46, 0.14) 0px 6px 16px 0px')
   // Удержание клавиши после commit не должно создавать случайный sibling.
   await page.locator('main').dispatchEvent('keydown', { key: 'Enter', repeat: true })
   await expect(page.locator('[data-cell-id]')).toHaveCount(count + 1)
@@ -37,7 +38,19 @@ test('compact cards show only text; Enter saves, a separate Enter creates a sibl
   await expect(card.locator('.cell-text')).toHaveCSS('text-decoration-line', 'none')
   await expect(card).toHaveCSS('background-color', 'rgb(199, 232, 167)')
   await expect(card.locator('.cell-text')).toHaveCSS('color', 'rgb(32, 37, 28)')
-  await expect(card).toHaveCSS('box-shadow', 'rgba(98, 140, 57, 0.2) 0px 0px 0px 3px, rgba(65, 71, 46, 0.04) 0px 5px 15px 0px')
+  await expect(card).toHaveCSS('box-shadow', 'rgb(72, 120, 44) 0px 0px 0px 2px, rgba(98, 140, 57, 0.2) 0px 0px 0px 5px, rgba(65, 71, 46, 0.14) 0px 6px 16px 0px')
+  const measure = () => card.evaluate(element => {
+    const text = element.querySelector('.cell-text') as HTMLElement
+    return { width: element.clientWidth, height: element.clientHeight, textWidth: text.offsetWidth, textHeight: text.offsetHeight }
+  })
+  const selectedSize = await measure()
+  await page.keyboard.press('ArrowLeft')
+  await expect(card).toHaveAttribute('data-active', 'false')
+  await expect(card).toHaveCSS('box-shadow', 'rgba(65, 71, 46, 0.03) 0px 4px 12px 0px')
+  expect(await measure()).toEqual(selectedSize)
+  await card.click()
+  await expect(card).toHaveAttribute('data-active', 'true')
+  expect(await measure()).toEqual(selectedSize)
   await page.keyboard.press('Enter')
   await expect(page.getByRole('textbox')).toBeFocused()
   await expect(page.locator('[data-cell-id]')).toHaveCount(count + 2)
@@ -50,8 +63,8 @@ test('compact cards show only text; Enter saves, a separate Enter creates a sibl
   const editor = page.getByRole('textbox')
   await expect(editor).toHaveCSS('cursor', 'text')
   await expect(editor).toHaveCSS('color', 'rgb(32, 37, 28)')
-  await expect(card).toHaveCSS('border-color', 'rgb(98, 140, 57)')
-  await expect(card).toHaveCSS('box-shadow', 'rgba(98, 140, 57, 0.267) 0px 0px 0px 3px')
+  await expect(card).toHaveCSS('border-color', 'rgb(72, 120, 44)')
+  await expect(card).toHaveCSS('box-shadow', 'rgb(72, 120, 44) 0px 0px 0px 2px, rgba(98, 140, 57, 0.2) 0px 0px 0px 5px, rgba(65, 71, 46, 0.14) 0px 6px 16px 0px')
   const bounds = (await editor.boundingBox())!
   await page.mouse.move(bounds.x + 4, bounds.y + bounds.height / 2)
   await page.mouse.down()

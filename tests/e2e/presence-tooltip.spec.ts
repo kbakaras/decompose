@@ -43,6 +43,10 @@ test('selection tooltips list participants, deduplicate tabs and follow presence
     await child(boris).click()
     await expect(root(page)).toHaveAttribute('title', 'Анна')
     await expect(child(page)).toHaveAttribute('title', 'Борис')
+    await expect(child(page)).toHaveAttribute('data-active', 'true')
+    await expect(child(page)).toHaveCSS('outline-style', 'dashed')
+    await expect(child(page)).toHaveCSS('outline-offset', '7px')
+    await expect(child(page)).toHaveCSS('box-shadow', /rgb\(168, 107, 8\) 0px 0px 0px 2px/)
 
     await anna.getByRole('button', { name: 'Изменить имя' }).click()
     await anna.getByLabel('Имя', { exact: true }).fill('Анна Иванова')

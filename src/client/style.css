@@ -55,19 +55,19 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .delete-button { color: #aa6953; }
 .canvas { position: relative; flex: 1; min-height: 0; outline: none; }.canvas:focus-visible { box-shadow: inset 0 0 0 1px #c7cdbb; }
 .react-flow__node-cell { border-radius: 9px; width: 280px; }
-.cell { --cell-accent: #ce870e; --cell-halo: #edac2733; --cell-edit-halo: #edac2744; position: relative; cursor: grab; width: 280px; min-height: 44px; background: #ffe3a1; border: 1px solid #e2b65b; border-radius: 9px; padding: 8px 10px 10px; box-shadow: 0 4px 12px #41472e08; transition: border-color .15s, box-shadow .15s; }
-.cell-done { --cell-accent: #628c39; --cell-halo: #628c3933; --cell-edit-halo: #628c3944; background: #c7e8a7; border-color: #90b86c; }
-.cell-active { border-color: var(--cell-accent); box-shadow: 0 0 0 3px var(--cell-halo), 0 5px 15px #41472e0a; }
+.cell { --cell-accent: #a86b08; --cell-halo: #edac2733; position: relative; cursor: grab; width: 280px; min-height: 44px; background: #ffe3a1; border: 1px solid #e2b65b; border-radius: 9px; padding: 8px 10px 10px; box-shadow: 0 4px 12px #41472e08; transition: border-color .15s, box-shadow .15s; }
+.cell-done { --cell-accent: #48782c; --cell-halo: #628c3933; background: #c7e8a7; border-color: #90b86c; }
+/* Внешняя обводка усиливает рамку, не меняя размеры карточки и переносы текста. */
+.cell-active, .cell-editing { border-color: var(--cell-accent); box-shadow: 0 0 0 2px var(--cell-accent), 0 0 0 5px var(--cell-halo), var(--cell-raised-shadow, 0 6px 16px #41472e24); }
 .cell-text, .cell-editor { font-size: 15px; line-height: 1.5; min-height: 24px; overflow-wrap: anywhere; white-space: pre-wrap; text-align: var(--cell-text-align, left); color: #20251c; }
 .cell-editor { cursor: text; border: 0; outline: 0; padding: 0; resize: none; width: 100%; display: block; background: transparent; overflow: hidden; min-height: 24px; }
-.cell-editing { border-color: var(--cell-accent); box-shadow: 0 0 0 3px var(--cell-edit-halo); }
 .react-flow__node.react-flow__node-cell { cursor: grab; }
 .react-flow__node.react-flow__node-cell.draggable, .cell-draggable, .cell-dragging { cursor: move; }
 .cell-draggable { user-select: none; }
 .react-flow__pane.dragging .react-flow__node-cell, .react-flow__pane.dragging .cell { cursor: grabbing; }
-.cell-dragging { box-shadow: 0 8px 24px #41472e25; }
+.cell-dragging { --cell-raised-shadow: 0 8px 24px #41472e25; }
 .drop-indicator { position: absolute; top: 0; left: 0; z-index: 3000; height: 3px; border-radius: 2px; background: #ce870e; pointer-events: none; box-shadow: 0 0 0 2px #fffefa; }
-.cell-with-presence { outline: 1px dashed var(--presence-color); outline-offset: 4px; }
+.cell-with-presence { outline: 1px dashed var(--presence-color); outline-offset: 7px; }
 .react-flow__handle { background: #b7bcae; border: 2px solid #f6f4ed; width: 7px; height: 7px; pointer-events: none; cursor: inherit; }
 .react-flow__attribution { font-size: 8px; background: transparent; opacity: .55; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
