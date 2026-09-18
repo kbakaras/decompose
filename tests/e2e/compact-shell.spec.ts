@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('one compact header leaves all remaining space to the canvas on desktop and small screens', async ({ page }) => {
   await page.goto('/')

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, namedContext, type Page } from './fixtures'
 
 async function open(page: Page) {
   await page.goto('/')
@@ -22,7 +22,7 @@ test('initial view appears in its final position on first load, reload and offli
   await create(page, 'Tab', 'Высокая клеточка. '.repeat(15))
   await create(page, 'Enter', 'Соседняя ветка')
   const leaf = await create(page, 'Tab', 'Глубокая деталь')
-  const context = await browser.newContext()
+  const context = await namedContext(browser)
   const viewer = await context.newPage()
   try {
     await viewer.addInitScript(() => {
@@ -126,6 +126,10 @@ async function dragTo(page: Page, sourceId: string, targetId: string, side: 'bef
   const source = cell(page, sourceId)
   await expect(source).toHaveClass(/cell-draggable/)
   await expect(source.locator('.cell-text')).toHaveCSS('cursor', 'move')
+  // После удалённого изменения layout и fitView ещё могут менять геометрию.
+  // Проверка actionability дожидается стабильных клеточек до измерения координат drag.
+  await source.click({ trial: true })
+  await cell(page, targetId).click({ trial: true })
   const from = (await source.boundingBox())!
   const text = (await source.locator('.cell-text').boundingBox())!
   const to = (await cell(page, targetId).boundingBox())!
@@ -170,8 +174,8 @@ test('canvas, root and a non-reorderable cell share pan cursors and move the vie
 })
 
 test('mouse reorder commits on drop, syncs, preserves children and supports cancellation', async ({ browser }) => {
-  const leftContext = await browser.newContext()
-  const rightContext = await browser.newContext()
+  const leftContext = await namedContext(browser)
+  const rightContext = await namedContext(browser)
   const left = await leftContext.newPage()
   const right = await rightContext.newPage()
   try {

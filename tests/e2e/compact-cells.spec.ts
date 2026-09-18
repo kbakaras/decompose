@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('compact cards show only text; Enter saves, a separate Enter creates a sibling', async ({ page }) => {
   await page.goto('/')

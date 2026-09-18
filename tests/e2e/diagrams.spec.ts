@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, namedContext, type Page } from './fixtures'
 
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 async function ready(page: Page) {
@@ -30,7 +30,7 @@ test('create, switch, share and rename diagrams without mixing data, presence or
   await expect(page.locator('[data-cell-id]')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Отменить действие', exact: true })).toBeDisabled()
 
-  const context = await browser.newContext()
+  const context = await namedContext(browser)
   const peer = await context.newPage()
   try {
     await peer.goto(firstUrl)

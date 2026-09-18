@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
 import { DomainError, ROOT_ID, projectTree, normalizeText } from '../domain'
@@ -8,6 +8,8 @@ import { DiagramPicker } from './DiagramPicker'
 import { focusAfterRemoval, navigate } from './interaction'
 import { layoutTree, NODE_WIDTH, NODE_MIN_HEIGHT } from './layout'
 import { beginSiblingDrag, isSiblingDragValid, siblingDropTarget, type DragPreview } from './sibling-drag'
+import { browserIdentity, initials, subscribeIdentity } from './identity'
+import { summarizeParticipants } from './presence'
 
 const nodeTypes = { cell: Cell }
 
@@ -17,13 +19,25 @@ interface WorkspaceProps {
   switching: boolean
   navigate: (url: string) => Promise<void>
   registerBeforeLeave: (callback: () => void) => () => void
+  requestIdentity: () => Promise<boolean>
+  editIdentity: () => void
 }
 
 export function App(props: WorkspaceProps) {
   return <ReactFlowProvider><Workspace {...props} /></ReactFlowProvider>
 }
 
-function Workspace({ session, header, switching, navigate: navigateToDiagram, registerBeforeLeave }: WorkspaceProps) {
+function Workspace({ session, header, switching, navigate: navigateToDiagram, registerBeforeLeave, requestIdentity, editIdentity }: WorkspaceProps) {
+  const identity = useSyncExternalStore(subscribeIdentity, browserIdentity)
+  const actionEpoch = useRef(0)
+  useEffect(() => () => { actionEpoch.current++ }, [])
+  const withIdentity = useCallback((operation: () => void) => {
+    if (session.identity.name) { operation(); return }
+    const epoch = actionEpoch.current
+    void requestIdentity().then(accepted => {
+      if (accepted && epoch === actionEpoch.current && session.identity.name) operation()
+    })
+  }, [session, requestIdentity])
   const [, redraw] = useState(0)
   const [revision, setRevision] = useState(0)
   const [active, setActive] = useState(ROOT_ID)
@@ -52,12 +66,10 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const previous = useRef(tree)
   const ready = session.ready()
   const participants = session.participants()
-  const avatars = [...new Map([
-    [session.identity.id, { ...session.identity, userId: session.identity.id, clientId: session.doc.clientID, activeNode: null, editingNode: null }],
-    ...participants.filter(person => person.userId !== session.identity.id).map(person => [person.userId, person] as const),
-  ]).values()]
+  const presence = summarizeParticipants(participants, identity)
+  const avatars = presence.named.filter(person => person.id !== identity.id)
   const connected = navigator.onLine && session.provider.configuration.websocketProvider.status === 'connected'
-  const others = participants.filter(person => person.clientId !== session.doc.clientID)
+  const others = participants.filter(person => person.name && person.clientId !== session.doc.clientID)
   const documentTitle = tree.nodes.get(ROOT_ID)?.text || 'Новая декомпозиция'
   useEffect(() => { document.title = `${documentTitle} — Decompose` }, [documentTitle])
 
@@ -96,13 +108,13 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     const previousId = editRef.current?.id ?? null
     editRef.current = next
     setEdit(next)
-    if (previousId !== (next?.id ?? null)) session.provider.setAwarenessField('editingNode', next?.id ?? null)
+    if (previousId !== (next?.id ?? null)) session.setPresence('editingNode', next?.id ?? null)
   }, [session])
   const focusCanvas = useCallback(() => {
     if (!editRef.current) canvas.current?.focus({ preventScroll: true })
   }, [])
   useEffect(() => {
-    session.provider.setAwarenessField('activeNode', active)
+    session.setPresence('activeNode', active)
     if (ready && !switching && !editRef.current) focusCanvas()
   }, [active, ready, switching, session, focusCanvas])
   useEffect(() => {
@@ -173,10 +185,15 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     try { operation(); setNotice(null); return true }
     catch (error) { setNotice(error instanceof DomainError ? error.message : String(error)); return false }
   }, [])
+  const change = useCallback((operation: () => void) => withIdentity(() => {
+    run(operation)
+    focusCanvas()
+  }), [withIdentity, run, focusCanvas])
   const commit = useCallback(() => {
     const current = editRef.current
     if (!current) return
     updateEdit(null)
+    if (!session.identity.name) { setNotice('Представься перед редактированием. Несохранённый текст отменён.'); return }
     if (run(() => session.commands.setText(current.id, current.draft))) {
       setMessage(current.id === ROOT_ID
         ? 'Tab — дочерняя клеточка · F2 — редактировать'
@@ -184,22 +201,23 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
   }, [run, session, updateEdit])
   useEffect(() => registerBeforeLeave(() => {
+    actionEpoch.current++
     commit()
     updateDrag(null)
     setActionsOpen(false)
     setHelp(false)
   }), [registerBeforeLeave, commit, updateDrag])
-  const startEdit = useCallback((id: string, isNew = false) => {
+  const startEdit = useCallback((id: string, isNew = false) => withIdentity(() => {
     const lockedBy = session.participants().find(person => person.clientId !== session.doc.clientID && person.editingNode === id)
     if (lockedBy) { setNotice(`${lockedBy.name} сейчас редактирует эту клеточку.`); return }
     const node = projectTree(session.doc).nodes.get(id)
-    if (!node) return
+    if (!node) { setNotice('Клеточка больше не видна. Выбери другую.'); return }
     setActive(id)
     setNotice(null)
     updateEdit({ id, draft: node.text, isNew })
     setMessage('Enter — сохранить · Tab — сохранить и создать дочернюю · Esc — отменить')
-  }, [session, updateEdit])
-  const create = useCallback((kind: 'child' | 'sibling') => {
+  }), [session, updateEdit, withIdentity])
+  const create = useCallback((kind: 'child' | 'sibling') => withIdentity(() => {
     const parent = editRef.current?.id ?? active
     commit()
     const created = run(() => {
@@ -207,12 +225,12 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       startEdit(id, true)
     })
     if (!created) focusCanvas()
-  }, [active, commit, run, session, startEdit, focusCanvas])
-  const remove = useCallback(() => {
+  }), [active, commit, run, session, startEdit, focusCanvas, withIdentity])
+  const remove = useCallback(() => withIdentity(() => {
     commit()
     run(() => session.commands.deleteSubtree(active))
     focusCanvas()
-  }, [active, commit, run, session, focusCanvas])
+  }), [active, commit, run, session, focusCanvas, withIdentity])
   const cancel = useCallback(() => {
     const current = editRef.current
     if (!current) return
@@ -230,7 +248,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   }, [session, updateEdit, run, focusCanvas])
   const applyHistory = useCallback((direction: 'undo' | 'redo') => {
     if (!session.ready() || editRef.current || dragRef.current) return
-    run(() => {
+    change(() => {
       const before = projectTree(session.doc)
       const command = session.history[direction]()
       const after = projectTree(session.doc)
@@ -239,8 +257,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       }
       setMessage(command ? (direction === 'undo' ? 'Действие отменено.' : 'Действие повторено.') : 'Нет доступных действий.')
     })
-    focusCanvas()
-  }, [session, run, focusCanvas])
+  }, [session, change])
   const editorKey = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
     event.stopPropagation()
     if (event.nativeEvent.isComposing) return
@@ -281,9 +298,18 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       updateDrag(null)
       setMessage('Порядок не изменён.')
     } else {
-      const moved = run(() => session.commands.move(node.id, current.snapshot.parentId, target.index))
-      updateDrag(moved ? { ...current, position: node.position, target: null, phase: 'settling' } : null)
-      if (moved) setMessage('Порядок клеточек изменён.')
+      if (!session.identity.name) updateDrag(null)
+      withIdentity(() => {
+        if (!isSiblingDragValid(projectTree(session.doc), current.snapshot)) {
+          updateDrag(null)
+          setNotice('Структура изменилась другим участником. Повтори перетаскивание.')
+          return
+        }
+        const moved = run(() => session.commands.move(node.id, current.snapshot.parentId, target.index))
+        updateDrag(moved ? { ...current, position: node.position, target: null, phase: 'settling' } : null)
+        if (moved) setMessage('Порядок клеточек изменён.')
+        focusCanvas()
+      })
     }
     focusCanvas()
   }
@@ -343,13 +369,13 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       if (event.key === 'Tab' && !event.shiftKey) { create('child'); return }
       if (event.key === 'F2') { startEdit(active); return }
       if (event.key === 'Delete') { remove(); return }
-      if (event.key === ' ') { run(() => session.commands.toggleStatus(active)); return }
+      if (event.key === ' ') { change(() => session.commands.toggleStatus(active)); return }
       if ((event.key === 'Tab' && event.shiftKey) || (ctrl && event.key === 'ArrowLeft')) {
-        run(() => session.commands.outdent(active)); return
+        change(() => session.commands.outdent(active)); return
       }
-      if (ctrl && event.key === 'ArrowRight') { run(() => session.commands.indent(active)); return }
+      if (ctrl && event.key === 'ArrowRight') { change(() => session.commands.indent(active)); return }
       if (ctrl && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-        run(() => session.commands.reorder(active, event.key === 'ArrowUp' ? -1 : 1)); return
+        change(() => session.commands.reorder(active, event.key === 'ArrowUp' ? -1 : 1)); return
       }
       if (event.key.startsWith('Arrow')) setActive(navigate(tree, active, event.key))
     }
@@ -362,16 +388,28 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
 
   return <>
     {createPortal(<>
-      <DiagramPicker id={session.id} title={documentTitle} connected={connected} navigate={navigateToDiagram} />
+      <DiagramPicker id={session.id} title={documentTitle} connected={connected} navigate={navigateToDiagram} requestIdentity={requestIdentity} />
       <div className="connection" data-testid="connection" data-connected={String(connected)}
         title={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}
         aria-label={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}>
         <i className={connected ? 'online' : 'offline'} /><span>{connected ? 'В сети' : 'Offline'}</span>
       </div>
-      <div className="avatars" aria-label="Участники">{avatars.slice(0, 3).map(person => <span key={person.userId} data-user-id={person.userId}
-        title={`${person.name}${person.userId === session.identity.id ? ' (ты)' : ''}`}
-        style={{ background: person.color }}>{person.name.slice(-2)}</span>)}</div>
-      {avatars.length > 3 && <span className="participant-count" title={avatars.slice(3).map(person => person.name).join(', ')}>+{avatars.length - 3}</span>}
+      <div className="avatars" aria-label="Участники">
+        <button className={identity.name ? 'identity-trigger' : 'introduce-button'} disabled={switching}
+          aria-label={identity.name ? 'Изменить имя' : 'Представиться'} title={identity.name ? 'Изменить имя' : 'Представиться'} aria-haspopup="dialog" onClick={editIdentity}>
+          {identity.name ? <span data-user-id={identity.id} title={`${identity.name} (ты)`}
+            style={{ background: identity.color }}>{initials(identity.name)}</span> : <>
+            <small className="introduce-label">Представиться</small>
+            <svg className="introduce-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" />
+            </svg>
+          </>}
+        </button>
+        {avatars.slice(0, identity.name ? 2 : 3).map(person => <span className="remote-avatar" key={person.id} data-user-id={person.id}
+          title={person.name} style={{ background: person.color }}>{initials(person.name)}</span>)}
+      </div>
+      {presence.named.length > 3 && <span className="participant-count" title={avatars.slice(identity.name ? 2 : 3).map(person => person.name).join(', ')}>+{presence.named.length - 3}</span>}
+      {presence.guests > 0 && <span className="guest-count" title="Непредставившиеся посетители этой схемы">Гостей: {presence.guests}</span>}
       <button className="icon-button" aria-label="Отменить действие" title="Отменить действие (Ctrl/⌘+Z)"
         disabled={switching || !ready || !!edit || !!drag || !session.history.canUndo} onClick={() => applyHistory('undo')}>↶</button>
       <button className="icon-button" aria-label="Повторить действие" title="Повторить действие (Ctrl/⌘+Shift+Z, Ctrl+Y)"
@@ -394,7 +432,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           <button disabled={!ready} onClick={() => { setActionsOpen(false); create('child') }}>Дочерняя <kbd>Tab</kbd></button>
           <button disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); create('sibling') }}>Рядом <kbd>Enter</kbd></button>
           <button disabled={!ready} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
-          <button disabled={!ready} onClick={() => { setActionsOpen(false); commit(); run(() => session.commands.toggleStatus(active)); focusCanvas() }}>Статус <kbd>Space</kbd></button>
+          <button disabled={!ready} onClick={() => { setActionsOpen(false); commit(); change(() => session.commands.toggleStatus(active)) }}>Статус <kbd>Space</kbd></button>
           <button className="delete-button" aria-label="Удалить" disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
         </div>}
       </div>

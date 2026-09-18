@@ -39,6 +39,13 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
       }
       initializeDocument(document)
     },
+    async onAwarenessUpdate({ document, connection, updated }) {
+      if (!connection) return
+      // Yjs помечает возвращение известного client ID как updated, а Hocuspocus 4
+      // привязывает к соединению только added. Без этого close оставляет ghost presence.
+      const clients = document.getClients(connection)
+      for (const clientId of updated) clients.add(clientId)
+    },
   })
   const collaboration = transport.hocuspocus
   const app = express()

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, namedContext, type Page } from './fixtures'
 
 async function create(page: Page, title: string) {
   const response = await page.request.post('/api/diagrams', { data: { title } })
@@ -140,7 +140,7 @@ test('switching keeps the page and header, stable identity and exactly one live 
 test('leaving a diagram removes presence on another client but keeps genuine participants', async ({ page, browser }) => {
   const a = await create(page, 'Presence A')
   const b = await create(page, 'Presence B')
-  const context = await browser.newContext()
+  const context = await namedContext(browser)
   const observer = await context.newPage()
   try {
     await observer.goto(`/?diagram=${a}`)

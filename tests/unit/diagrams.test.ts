@@ -82,3 +82,38 @@ it('rejects unknown WebSocket document names without implicitly creating a diagr
     await rm(dataDir, { recursive: true, force: true })
   }
 }, 30000)
+
+it('removes awareness immediately when a reconnected client leaves without sending a farewell', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'decompose-presence-'))
+  const backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
+  let socket: HocuspocusProviderWebsocket | undefined
+  let provider: HocuspocusProvider | undefined
+  try {
+    const port = await backend.listen(0)
+    socket = new HocuspocusProviderWebsocket({ url: `ws://127.0.0.1:${port}/collaboration`, WebSocketPolyfill: WebSocket })
+    provider = new HocuspocusProvider({ websocketProvider: socket, name: 'main' })
+    provider.attach()
+    const clientId = provider.document.clientID
+    provider.setAwarenessField('user', { id: 'stable-browser-id', name: 'Анна' })
+    await expect.poll(() => backend.collaboration.documents.get('main')?.awareness.getStates().has(clientId), { timeout: 5000 }).toBe(true)
+    // Удерживаем уже загруженный сокетом документ, чтобы между reconnect не сбрасывалась Awareness metadata.
+    const witness = await backend.collaboration.openDirectConnection('main')
+    try {
+      for (let cycle = 0; cycle < 3; cycle++) {
+        await expect.poll(() => witness.document!.awareness.getStates().has(clientId), { timeout: 5000 }).toBe(true)
+        socket.disconnect()
+        await expect.poll(() => witness.document!.awareness.getStates().has(clientId), { timeout: 2000 }).toBe(false)
+        if (cycle < 2) {
+          provider.setAwarenessField('user', { id: 'stable-browser-id', name: `Анна ${cycle}` })
+          await socket.connect()
+        }
+      }
+    } finally { await witness.disconnect() }
+  } finally {
+    provider?.destroy()
+    socket?.destroy()
+    provider?.document.destroy()
+    await backend.close()
+    await rm(dataDir, { recursive: true, force: true })
+  }
+}, 15000)

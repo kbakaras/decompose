@@ -25,6 +25,17 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .connection i { width: 6px; height: 6px; border-radius: 50%; }.online { background: #5a8762; }.offline { background: #c4813f; }
 .avatars { display: flex; margin-left: 4px; flex-shrink: 0; }.avatars span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; border: 2px solid #f6f4ed; margin-left: -4px; color: white; font-size: 9px; }
 .participant-count { font-size: 11px; color: #727c6e; }
+.guest-count { font-size: 11px; color: #727c6e; white-space: nowrap; }
+.identity-trigger { border: 0; padding: 0; background: transparent; border-radius: 50%; }
+.introduce-button { border: 0; padding: 6px; background: transparent; border-radius: 5px; font-size: 12px; }
+.introduce-button:hover { background: #e8e9df; }
+.introduce-label { font: inherit; }.introduce-icon { display: none; }
+.identity-dialog { width: min(360px, calc(100% - 24px)); }
+.identity-dialog h2 { margin: 0; font-size: 20px; font-weight: 500; }
+.identity-dialog label { display: block; margin-bottom: 8px; font-size: 13px; }
+.identity-dialog input { width: 100%; padding: 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; }
+.identity-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.identity-buttons button { padding: 8px 12px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; }
 .icon-button { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; font-size: 19px; }
 .icon-button:hover:not(:disabled), .icon-button[aria-expanded="true"] { background: #e8e9df; }
 .actions { position: relative; }
@@ -56,4 +67,5 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .help-panel { position: absolute; right: 12px; top: 12px; padding: 20px; width: min(400px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; background: #fffefa; border: 1px solid #dddccf; border-radius: 10px; box-shadow: 0 15px 50px #37402716; z-index: 10; }
 .help-panel h2 { margin: 0; font-size: 19px; font-weight: 500; }.help-panel p { font-size: 12px; line-height: 1.6; color: #8b9185; }.help-row { display: flex; justify-content: space-between; font-size: 11px; margin: 12px 0; }.help-panel button { padding: 8px 12px; border: 1px solid #dddccf; border-radius: 5px; background: #f6f4ed; font-size: 12px; }
 .loading { padding: 80px 32px; color: #8b9185; text-align: center; }
-@media (max-width: 700px) { .avatars, .participant-count, .connection span { display: none; }.topbar { gap: 4px; padding: 0 8px; }.document-title { margin: 0 4px; }.brand-name { display: none; } }
+@media (max-width: 700px) { .avatars .remote-avatar, .participant-count, .connection span { display: none; }.topbar { gap: 4px; padding: 0 8px; }.document-title { margin: 0 4px; }.brand-name { display: none; } }
+@media (max-width: 700px) { .introduce-label { display: none; }.introduce-icon { display: block; } }

@@ -4,16 +4,9 @@ import { HocuspocusProvider } from '@hocuspocus/provider'
 import { DocumentHistory, getStructures, ROOT_ID, SCHEMA_VERSION, TreeCommands } from '../domain'
 import { isDiagramId } from '../shared/diagrams'
 import { flushPersistence, protectPendingUpdates } from './local-persistence'
-import { browserIdentity } from './identity'
-
-export interface Participant {
-  clientId: number
-  userId: string
-  name: string
-  color: string
-  activeNode: string | null
-  editingNode: string | null
-}
+import { browserIdentity, refreshIdentity, subscribeIdentity } from './identity'
+import { readParticipants, type Participant } from './presence'
+export type { Participant } from './presence'
 
 export async function openSession(id = 'main', signal?: AbortSignal) {
   if (!isDiagramId(id)) throw new Error('Некорректная ссылка на схему')
@@ -55,20 +48,32 @@ export async function openSession(id = 'main', signal?: AbortSignal) {
     name: id,
     document: doc,
   })
-  const identity = browserIdentity()
-  provider.setAwarenessField('user', identity)
   let closed = false
+  let hidden = false
+  const selection: { activeNode: string | null; editingNode: string | null } = { activeNode: null, editingNode: null }
+  const publishIdentity = () => {
+    if (closed || hidden) return
+    const identity = browserIdentity()
+    provider.awareness?.setLocalState({
+      user: identity,
+      activeNode: identity.name ? selection.activeNode : null,
+      editingNode: identity.name ? selection.editingNode : null,
+    })
+  }
+  publishIdentity()
+  const unsubscribeIdentity = subscribeIdentity(publishIdentity)
   const offline = () => provider.disconnect()
-  const online = () => { if (!closed) void provider.connect() }
-  let hiddenState: Record<string, unknown> | null = null
+  const online = () => { if (!closed && !hidden) void provider.connect() }
   const pagehide = () => {
-    hiddenState = provider.awareness?.getLocalState() ?? null
+    hidden = true
     provider.awareness?.setLocalState(null)
     provider.disconnect()
   }
   const pageshow = (event: PageTransitionEvent) => {
     if (event.persisted && !closed) {
-      provider.awareness?.setLocalState(hiddenState ?? { user: identity })
+      refreshIdentity()
+      hidden = false
+      publishIdentity()
       if (navigator.onLine) online()
     }
   }
@@ -86,7 +91,12 @@ export async function openSession(id = 'main', signal?: AbortSignal) {
   let closing: Promise<void> | undefined
 
   return {
-    id, doc, provider, persistence, identity, history, flush,
+    id, doc, provider, persistence, history, flush,
+    get identity() { return browserIdentity() },
+    setPresence(field: 'activeNode' | 'editingNode', value: string | null) {
+      selection[field] = value
+      publishIdentity()
+    },
     commands: new TreeCommands(doc),
     ready,
     async whenReady(signal: AbortSignal) {
@@ -112,20 +122,12 @@ export async function openSession(id = 'main', signal?: AbortSignal) {
     },
     participants(): Participant[] {
       if (!navigator.onLine || provider.configuration.websocketProvider.status !== 'connected') return []
-      return [...(provider.awareness?.getStates().entries() ?? [])]
-        .filter(([, state]) => typeof state.user?.name === 'string')
-        .map(([clientId, state]) => ({
-          clientId,
-          userId: typeof state.user?.id === 'string' ? state.user.id : `legacy:${clientId}`,
-          name: state.user.name,
-          color: typeof state.user?.color === 'string' ? state.user.color : '#777',
-          activeNode: typeof state.activeNode === 'string' ? state.activeNode : null,
-          editingNode: typeof state.editingNode === 'string' ? state.editingNode : null,
-        }))
+      return readParticipants(provider.awareness?.getStates().entries() ?? [])
     },
     destroy() {
       if (closing) return closing
       closed = true
+      unsubscribeIdentity()
       window.removeEventListener('offline', offline)
       window.removeEventListener('online', online)
       window.removeEventListener('pagehide', pagehide, true)

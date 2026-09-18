@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App } from './App'
 import { openSession, type Session } from './session'
+import { useIdentityPrompt } from './IdentityPrompt'
 
 export function Application() {
+  const { requestIdentity, editIdentity, cancelIdentity, dialog } = useIdentityPrompt()
   const [header, setHeader] = useState<HTMLElement | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [switching, setSwitching] = useState(false)
@@ -30,6 +32,7 @@ export function Application() {
     const url = new URL(href, location.href)
     const id = url.searchParams.get('diagram') ?? 'main'
     const currentGeneration = ++generation.current
+    cancelIdentity()
     pending.current?.abort()
     const controller = new AbortController()
     pending.current = controller
@@ -82,7 +85,7 @@ export function Application() {
     })
     queue.current = task
     return task
-  }, [cancelNoticeTimer])
+  }, [cancelNoticeTimer, cancelIdentity])
 
   useEffect(() => {
     void navigate(location.href, 'initial')
@@ -112,9 +115,10 @@ export function Application() {
     </header>
     {session && header
       ? <App key={session.doc.clientID} session={session} header={header} switching={switching}
-        navigate={navigate} registerBeforeLeave={registerBeforeLeave} />
+        navigate={navigate} registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
       : <div className="loading">{error ? <a href="/" onClick={event => { event.preventDefault(); void navigate('/') }}>Вернуться к основной схеме</a> : 'Открываем Decompose…'}</div>}
     {switching && session && showLoadingNotice && <div className="navigation-notice" role="status">Открываем схему…</div>}
+    {dialog}
     {error && <div className="notice navigation-error" role="alert"><span>Не удалось открыть схему: {error}</span>
       <button aria-label="Закрыть сообщение" onClick={() => setError('')}>×</button></div>}
   </div>

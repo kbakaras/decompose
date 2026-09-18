@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, namedContext, type Page } from './fixtures'
 
 async function open(page: Page) {
   await page.goto('/')
@@ -44,8 +44,8 @@ test('keyboard decomposition, atomic drafts, cancel and status', async ({ page }
 })
 
 test('two clients, soft lock, offline reload and concurrent atomic text merge', async ({ browser }) => {
-  const leftContext = await browser.newContext()
-  const rightContext = await browser.newContext()
+  const leftContext = await namedContext(browser)
+  const rightContext = await namedContext(browser)
   const left = await leftContext.newPage()
   const right = await rightContext.newPage()
   try {
@@ -55,7 +55,7 @@ test('two clients, soft lock, offline reload and concurrent atomic text merge', 
     const id = await cell(left, 'Совместная клеточка').getAttribute('data-cell-id')
     const target = (page: Page) => page.locator(`[data-cell-id="${id}"]`)
     await expect(target(right)).toHaveAttribute('data-text', 'Совместная клеточка')
-    await expect(left.locator('.avatars > span')).toHaveCount(2)
+    await expect(left.locator('.avatars span')).toHaveCount(2)
     await left.keyboard.press('F2')
     await left.getByRole('textbox').fill('Локальный draft')
     await expect(target(right)).toHaveAttribute('data-text', 'Совместная клеточка')
@@ -109,8 +109,8 @@ test('two clients, soft lock, offline reload and concurrent atomic text merge', 
 })
 
 test('indent, automatic height and remote subtree deletion while editing', async ({ browser }) => {
-  const leftContext = await browser.newContext()
-  const rightContext = await browser.newContext()
+  const leftContext = await namedContext(browser)
+  const rightContext = await namedContext(browser)
   const left = await leftContext.newPage()
   const right = await rightContext.newPage()
   try {

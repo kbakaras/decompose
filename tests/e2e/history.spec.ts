@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, namedContext, type Page } from './fixtures'
 
 async function open(page: Page) {
   await page.goto('/')
@@ -66,8 +66,8 @@ test('keyboard and toolbar history, native draft undo, cancellation and reload',
 })
 
 test('undo and redo reorder, reparent, subtree deletion and creation synchronize without remote history', async ({ browser }) => {
-  const lc = await browser.newContext()
-  const rc = await browser.newContext()
+  const lc = await namedContext(browser)
+  const rc = await namedContext(browser)
   const left = await lc.newPage()
   const right = await rc.newPage()
   const dialogs: string[] = []

@@ -13,8 +13,8 @@ function saveCatalog(items: DiagramSummary[]) {
   try { localStorage.setItem(catalogKey, JSON.stringify(items)) } catch { /* Кеш списка необязателен. */ }
 }
 
-export function DiagramPicker({ id, title, connected, navigate }: {
-  id: string; title: string; connected: boolean; navigate: (url: string) => Promise<void>
+export function DiagramPicker({ id, title, connected, navigate, requestIdentity }: {
+  id: string; title: string; connected: boolean; navigate: (url: string) => Promise<void>; requestIdentity: () => Promise<boolean>
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -86,6 +86,7 @@ export function DiagramPicker({ id, title, connected, navigate }: {
         setCreating(true)
         setMessage('')
         try {
+          if (!await requestIdentity()) { setCreating(false); return }
           const response = await fetch('/api/diagrams', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: name.trim() }),
           })
