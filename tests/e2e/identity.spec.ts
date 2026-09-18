@@ -226,6 +226,7 @@ for (const stale of [false, true]) test(`guest drag waits for a name and ${stale
     const cell = (target: Page, id: string) => target.locator(`[data-cell-id="${id}"]`)
     const drag = async () => {
       await page.getByRole('button', { name: 'Вся схема' }).click()
+      await cell(page, c).click()
       await expect(cell(page, c)).toHaveClass(/cell-draggable/)
       const from = (await cell(page, c).boundingBox())!
       const to = (await cell(page, a).boundingBox())!

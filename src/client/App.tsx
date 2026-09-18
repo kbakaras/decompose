@@ -277,10 +277,10 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   }, [updateEdit])
 
   const startDrag = (_event: unknown, node: FlowCell) => {
+    if (node.id !== active) return
     commit()
     const snapshot = beginSiblingDrag(projectTree(session.doc), node.id, positions, heights)
     if (!snapshot) return
-    setActive(node.id)
     updateDrag({ snapshot, position: node.position, target: null, phase: 'dragging' })
     setMessage('Перетащи выше или ниже соседних клеточек. Esc — отменить.')
     focusCanvas()
@@ -318,7 +318,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     id: node.id, type: 'cell',
     position: drag?.snapshot.id === node.id ? drag.position : positions.get(node.id) ?? { x: 0, y: 0 },
     style: { opacity: positions.has(node.id) ? 1 : 0, pointerEvents: positions.has(node.id) ? 'auto' : 'none' },
-    draggable: positions.has(node.id) && node.id !== ROOT_ID && edit?.id !== node.id && drag?.phase !== 'settling'
+    draggable: node.id === active && positions.has(node.id) && node.id !== ROOT_ID && edit?.id !== node.id && drag?.phase !== 'settling'
       && (tree.children.get(node.parentId ?? '')?.length ?? 0) > 1,
     zIndex: drag?.snapshot.id === node.id ? 1001 : 0,
     measured: { width: NODE_WIDTH, height: heights.get(node.id) ?? NODE_MIN_HEIGHT },
@@ -467,7 +467,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Esc на схеме', 'Вернуться к панели действий'],
           ['Ctrl + Z', 'Отменить действие'], ['Ctrl + Shift + Z / Y', 'Повторить действие'],
         ].map(([key, label]) => <div className="help-row" key={key}><span>{label}</span><kbd>{key}</kbd></div>)}
-        <p>Мышью: тяни за любую часть клеточки вне редактирования текста, чтобы изменить порядок среди детей одного родителя. Esc отменяет drag.</p>
+        <p>Мышью: клик активирует клеточку. Тяни активную клеточку, чтобы изменить порядок среди детей одного родителя; неактивную — чтобы переместить холст без смены выделения. Esc отменяет перестановку.</p>
         <p>На macOS вместо Ctrl можно использовать ⌘. Текст клеточки сохраняется целиком.</p>
         <p>В редакторе undo/redo меняет только draft. На схеме — твои действия в этой вкладке. После перезагрузки история очищается.</p>
         <button onClick={() => { setHelp(false); focusCanvas() }}>Вернуться к схеме</button>
