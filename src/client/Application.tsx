@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { App } from './App'
 import { openSession, type Session } from './session'
 import { useIdentityPrompt } from './IdentityPrompt'
+import { parseDiagramRoute } from '../shared/diagram-route'
+import { trackerUrl, type TrackerSummary } from '../shared/tracker'
+import { resolveTracker, TrackerCreationCancelled } from './tracker-catalog'
 
 export function Application() {
   const { requestIdentity, editIdentity, cancelIdentity, dialog } = useIdentityPrompt()
@@ -10,6 +13,7 @@ export function Application() {
   const [switching, setSwitching] = useState(false)
   const [showLoadingNotice, setShowLoadingNotice] = useState(false)
   const [error, setError] = useState('')
+  const [cancelledTracker, setCancelledTracker] = useState<string | null>(null)
   const active = useRef<Session | null>(null)
   const activeUrl = useRef(location.href)
   const beforeLeave = useRef<(() => void) | null>(null)
@@ -30,7 +34,6 @@ export function Application() {
 
   const navigate = useCallback((href: string, mode: 'push' | 'pop' | 'initial' = 'push'): Promise<void> => {
     const url = new URL(href, location.href)
-    const id = url.searchParams.get('diagram') ?? 'main'
     const currentGeneration = ++generation.current
     cancelIdentity()
     pending.current?.abort()
@@ -46,14 +49,24 @@ export function Application() {
       }, 400)
     }
     setError('')
+    setCancelledTracker(null)
     const task = queue.current.catch(() => {}).then(async () => {
       if (currentGeneration !== generation.current) return
       let candidate: Session | null = null
       try {
+        const route = parseDiagramRoute(url)
+        let tracker: TrackerSummary | undefined
+        if (route.kind === 'tracker') {
+          tracker = await resolveTracker(route.key, controller.signal, requestIdentity)
+          controller.signal.throwIfAborted()
+          url.pathname = trackerUrl(route.key)
+          url.search = ''
+        }
+        const id = route.kind === 'diagram' ? route.id : tracker!.id
         let closing: Promise<void> | undefined
         if (active.current?.id !== id) {
           await active.current?.flush()
-          candidate = await openSession(id, controller.signal)
+          candidate = await openSession(id, controller.signal, tracker)
           // На первом открытии сохраняем возможность дождаться сервера в offline-оболочке.
           if (active.current) await candidate.whenReady(controller.signal)
           controller.signal.throwIfAborted()
@@ -67,6 +80,7 @@ export function Application() {
         // Переходы сериализованы: запоздавшая загрузка не перезаписывает последний запрос.
         if (currentGeneration === generation.current) {
           if (mode === 'push' && location.href !== url.href) history.pushState(null, '', url)
+          if (mode !== 'push' && location.href !== url.href) history.replaceState(null, '', url)
           activeUrl.current = url.href
         }
         await closing
@@ -74,7 +88,9 @@ export function Application() {
         if (candidate) await candidate.destroy().catch(console.error)
         if (currentGeneration !== generation.current || controller.signal.aborted) return
         if (mode === 'pop' && active.current) history.replaceState(null, '', activeUrl.current)
-        setError(failure instanceof Error ? failure.message : String(failure))
+        if (failure instanceof TrackerCreationCancelled) {
+          if (!active.current) setCancelledTracker(href)
+        } else setError(failure instanceof Error ? failure.message : String(failure))
       } finally {
         if (currentGeneration === generation.current) {
           cancelNoticeTimer()
@@ -85,7 +101,7 @@ export function Application() {
     })
     queue.current = task
     return task
-  }, [cancelNoticeTimer, cancelIdentity])
+  }, [cancelNoticeTimer, cancelIdentity, requestIdentity])
 
   useEffect(() => {
     void navigate(location.href, 'initial')
@@ -116,7 +132,12 @@ export function Application() {
     {session && header
       ? <App key={session.doc.clientID} session={session} header={header} switching={switching}
         navigate={navigate} registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
-      : <div className="loading">{error ? <a href="/" onClick={event => { event.preventDefault(); void navigate('/') }}>Вернуться к основной схеме</a> : 'Открываем дерево·дел…'}</div>}
+      : <div className="loading">{cancelledTracker ? <>
+        <p>Дерево задачи ещё не создано.</p>
+        <button onClick={() => { void navigate(cancelledTracker, 'initial') }}>Создать дерево задачи</button>{' '}
+      </> : !error && 'Открываем дерево·дел…'}
+        {(error || cancelledTracker) && <a href="/" onClick={event => { event.preventDefault(); void navigate('/') }}>Вернуться к основной схеме</a>}
+      </div>}
     {switching && session && showLoadingNotice && <div className="navigation-notice" role="status">Открываем схему…</div>}
     {dialog}
     {error && <div className="notice navigation-error" role="alert"><span>Не удалось открыть схему: {error}</span>

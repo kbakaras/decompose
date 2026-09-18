@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
 import { DomainError, ROOT_ID, projectTree, normalizeText, readTextAlign } from '../domain'
 import { diagramTitle } from '../shared/diagrams'
+import { trackerLabel } from '../shared/tracker'
 import type { Session } from './session'
 import { Cell, type EditState, type FlowCell } from './Cell'
 import { DiagramPicker } from './DiagramPicker'
@@ -71,9 +72,9 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const avatars = presence.named.filter(person => person.id !== identity.id)
   const connected = navigator.onLine && session.provider.configuration.websocketProvider.status === 'connected'
   const others = participants.filter(person => person.name && person.clientId !== session.doc.clientID)
-  const documentTitle = diagramTitle(tree.nodes.get(ROOT_ID)?.text ?? '')
+  const documentTitle = diagramTitle(tree.nodes.get(ROOT_ID)?.text ?? '', session.tracker?.trackerKey)
   const textAlign = readTextAlign(session.doc)
-  useEffect(() => { document.title = `${documentTitle} — дерево·дел` }, [documentTitle])
+  useEffect(() => { document.title = `${trackerLabel(documentTitle, session.tracker?.trackerKey)} — дерево·дел` }, [documentTitle, session.tracker])
 
   useEffect(() => {
     if (!actionsOpen) return
@@ -391,7 +392,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
 
   return <>
     {createPortal(<>
-      <DiagramPicker id={session.id} title={documentTitle} connected={connected} navigate={navigateToDiagram} requestIdentity={requestIdentity} />
+      <DiagramPicker id={session.id} title={documentTitle} tracker={session.tracker} connected={connected} navigate={navigateToDiagram} requestIdentity={requestIdentity} />
       <div className="connection" data-testid="connection" data-connected={String(connected)}
         title={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}
         aria-label={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}>

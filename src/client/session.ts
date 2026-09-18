@@ -6,10 +6,13 @@ import { isDiagramId } from '../shared/diagrams'
 import { flushPersistence, protectPendingUpdates } from './local-persistence'
 import { browserIdentity, refreshIdentity, subscribeIdentity } from './identity'
 import { readParticipants, type Participant } from './presence'
+import { isTrackerSummary, type TrackerSummary } from '../shared/tracker'
+import { readTrackerCatalog, rememberTrackers } from './tracker-catalog'
 export type { Participant } from './presence'
 
-export async function openSession(id = 'main', signal?: AbortSignal) {
+export async function openSession(id = 'main', signal?: AbortSignal, tracker?: TrackerSummary) {
   if (!isDiagramId(id)) throw new Error('Некорректная ссылка на схему')
+  tracker ??= readTrackerCatalog().find(item => item.id === id)
   const doc = new Y.Doc()
   const persistence = new IndexeddbPersistence(`decompose:${id}:v1`, doc)
   await persistence.whenSynced
@@ -29,6 +32,8 @@ export async function openSession(id = 'main', signal?: AbortSignal) {
       const response = await fetch(`/api/diagrams/${id}`, { cache: 'no-store', signal: AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]) })
       if (response.status === 404) throw new Error('Схема не найдена')
       if (!response.ok) throw new Error('Сервер не смог открыть схему')
+      const summary: unknown = await response.json()
+      if (isTrackerSummary(summary)) { tracker = summary; rememberTrackers([summary]) }
     }
     signal?.throwIfAborted()
   } catch (error) {
@@ -91,7 +96,7 @@ export async function openSession(id = 'main', signal?: AbortSignal) {
   let closing: Promise<void> | undefined
 
   return {
-    id, doc, provider, persistence, history, flush,
+    id, tracker, doc, provider, persistence, history, flush,
     get identity() { return browserIdentity() },
     setPresence(field: 'activeNode' | 'editingNode', value: string | null) {
       selection[field] = value

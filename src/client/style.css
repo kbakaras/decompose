@@ -18,6 +18,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .diagrams-dialog { color: inherit; width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid #dddccf; border-radius: 10px; background: #fffefa; box-shadow: 0 15px 50px #37402725; }
 .diagrams-dialog::backdrop { background: #263c3040; }.diagrams-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.diagrams-heading h2 { margin: 0; font-size: 20px; font-weight: 500; }
 .diagrams-dialog p { font-size: 12px; line-height: 1.5; }.diagrams-list { display: grid; gap: 4px; margin: 16px 0; max-height: 40dvh; overflow-y: auto; }
+.catalog-sections { display: flex; gap: 6px; margin: 12px 0; }
+.catalog-sections button, .tracker-more { padding: 7px 12px; border: 1px solid #b7bcae; border-radius: 5px; background: transparent; font-size: 13px; }
+.catalog-sections button[aria-pressed="true"] { background: #edf0e5; border-color: #628c39; }
+.tracker-search { display: grid; gap: 6px; font-size: 13px; }
+.tracker-search input { width: 100%; min-width: 0; padding: 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; }
 .diagrams-list a { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-radius: 5px; color: inherit; text-decoration: none; font-size: 14px; overflow-wrap: anywhere; }
 .diagrams-list a:hover, .diagrams-list a[aria-current] { background: #edf0e5; }.diagrams-list small { flex-shrink: 0; color: #727c6e; font-size: 11px; }
 .diagram-create { border-top: 1px solid #dddccf; padding-top: 16px; }.diagram-create label { display: block; margin-bottom: 8px; font-size: 13px; }.diagram-create > div { display: flex; gap: 8px; }

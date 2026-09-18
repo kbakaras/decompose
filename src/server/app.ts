@@ -5,14 +5,15 @@ import { resolve } from 'node:path'
 import express, { type ErrorRequestHandler } from 'express'
 import * as Y from 'yjs'
 import { Server } from '@hocuspocus/server'
-import { SQLite } from '@hocuspocus/extension-sqlite'
+import { TrackerStorage } from './tracker-storage'
 import { createImportedDocument, initializeDocument, getStructures, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
 import { diagramTitle, normalizeTitle, isDiagramId, type DiagramSummary } from '../shared/diagrams'
 import { ImportError, IMPORT_JSON_LIMIT } from '../shared/diagram-import'
+import { normalizeTrackerKey } from '../shared/tracker'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
   mkdirSync(options.dataDir, { recursive: true })
-  const storage = new SQLite({ database: resolve(options.dataDir, 'decompose.sqlite') })
+  const storage = new TrackerStorage(resolve(options.dataDir, 'decompose.sqlite'))
   const transport = new Server({
     quiet: true,
     stopOnSignals: false,
@@ -72,13 +73,15 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     try {
       if (!live) Y.applyUpdate(doc, row.data)
       const root = getStructures(doc).nodes.get(ROOT_ID)
-      return { id: row.name, title: diagramTitle(root ? readText(root) : '') }
+      const tracker = storage.trackerForDocument(row.name)
+      return { ...(tracker ?? {}), id: row.name, title: diagramTitle(root ? readText(root) : '', tracker?.trackerKey) }
     } finally {
       if (!live) doc.destroy()
     }
   }
   app.get('/api/diagrams', (_request, response) => {
-    const rows = storage.db!.prepare('SELECT name, data FROM documents ORDER BY rowid').all() as { name: string; data: Buffer }[]
+    const rows = storage.db!.prepare(`SELECT name, data FROM documents
+      WHERE NOT EXISTS (SELECT 1 FROM tracker_diagrams WHERE document_id = name) ORDER BY rowid`).all() as { name: string; data: Buffer }[]
     response.json(rows.filter(row => isDiagramId(row.name)).map(summarize))
   })
   app.get('/api/diagrams/:id', (request, response) => {
@@ -104,6 +107,28 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     } finally { doc.destroy() }
     response.status(201).json({ id, title } satisfies DiagramSummary)
   })
+  app.get('/api/tracker', (request, response) => {
+    const q = request.query.q ?? ''
+    const offset = request.query.offset ?? '0'
+    if (typeof q !== 'string' || q.length > 500 || typeof offset !== 'string'
+      || !/^\d+$/.test(offset) || !Number.isSafeInteger(Number(offset))) {
+      response.status(400).json({ error: 'Некорректные параметры поиска' }); return
+    }
+    response.json(storage.listTracker(q, Number(offset)))
+  })
+  app.get('/api/tracker/:key', (request, response) => {
+    const key = normalizeTrackerKey(request.params.key)
+    if (!key) { response.status(400).json({ error: 'Некорректный ключ задачи' }); return }
+    const item = storage.findTracker(key)
+    if (!item) { response.status(404).json({ error: 'Дерево задачи ещё не создано' }); return }
+    response.json(item)
+  })
+  app.post('/api/tracker/:key', (request, response) => {
+    const key = normalizeTrackerKey(request.params.key)
+    if (!key) { response.status(400).json({ error: 'Некорректный ключ задачи' }); return }
+    const { item, created } = storage.ensureTracker(key)
+    response.status(created ? 201 : 200).json(item)
+  })
   app.use('/api', (_request, response) => { response.status(404).json({ error: 'Неизвестный API-маршрут' }) })
   const apiError: ErrorRequestHandler = (error, _request, response, _next) => {
     const status = error.status === 400 || error.status === 413 ? error.status : 500
@@ -115,6 +140,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   app.use('/api', apiError)
   app.use(express.static(options.clientDir, { maxAge: 0 }))
   app.get('/', (_request, response) => response.sendFile(resolve(options.clientDir, 'index.html')))
+  app.get('/tracker/:key', (_request, response) => response.sendFile(resolve(options.clientDir, 'index.html')))
   const server = transport.httpServer
   server.removeAllListeners('request')
   server.on('request', app)

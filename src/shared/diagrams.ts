@@ -1,11 +1,11 @@
-export interface DiagramSummary { id: string; title: string }
+export interface DiagramSummary { id: string; title: string; trackerKey?: string }
 
 export function normalizeTitle(text: string): string {
   return text.replace(/[\r\n]+/g, ' ').trim()
 }
 
-export function diagramTitle(text: string): string {
-  return normalizeTitle(text) || 'Новая декомпозиция'
+export function diagramTitle(text: string, trackerKey?: string): string {
+  return normalizeTitle(text) || trackerKey || 'Новая декомпозиция'
 }
 
 export function isDiagramId(value: unknown): value is string {
