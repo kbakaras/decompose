@@ -49,6 +49,10 @@ export const Cell = memo(function Cell({ data, draggable }: NodeProps<FlowCell>)
   }, [editing, edit?.draft])
 
   const text = node.text || 'Пустая клеточка'
+  const selectedBy = [...new Map(data.others
+    .filter(person => person.activeNode === node.id && person.name)
+    .map(person => [person.userId, person.name!])).values()]
+    .sort((left, right) => left.localeCompare(right, 'ru')).join(', ')
   const editingBy = data.others.filter(person => person.editingNode === node.id).map(person => person.name).join(', ')
   const details = [
     node.status === 'done' ? 'Готово' : 'Открыто',
@@ -61,7 +65,7 @@ export const Cell = memo(function Cell({ data, draggable }: NodeProps<FlowCell>)
     data-layout-ready={String(data.positioned)}
     data-cell-id={node.id} data-parent-id={node.parentId ?? ''} data-order={data.index}
     data-status={node.status} data-active={String(data.active)} data-text={node.text}
-    data-editing-by={editingBy} aria-label={`${text}. ${details}`}>
+    data-editing-by={editingBy} title={selectedBy || undefined} aria-label={`${text}. ${details}`}>
     {node.parentId !== null && <Handle type="target" position={Position.Left} />}
     {editing ? <textarea ref={editor} className="nodrag nopan nowheel cell-editor" aria-label="Текст клеточки"
       value={edit.draft} rows={1} onChange={event => data.onDraft(event.target.value)}
