@@ -21,6 +21,9 @@ export async function layoutTree(tree: TreeProjection, heights: ReadonlyMap<stri
       'elk.layered.spacing.nodeNodeBetweenLayers': '72',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.layered.crossingMinimization.forceNodeModelOrder': 'true',
+      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      // Балансируем варианты выравнивания, чтобы перестановка не меняла выбранный край дерева.
+      'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
     },
     children: ids.map(id => ({ id, width: NODE_WIDTH, height: heights.get(id) ?? NODE_MIN_HEIGHT })),
     edges: ids.flatMap(parent => (tree.children.get(parent) ?? []).map(child => ({
