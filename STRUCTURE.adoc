@@ -1,0 +1,28 @@
+:toc: left
+:toc-title: Оглавление
+= Decompose: структура репозитория
+:figure-caption: Рисунок
+
+[listing]
+----
+decompose/
+├── AGENTS.md
+├── README.adoc
+├── STRUCTURE.adoc
+├── package.json
+├── package-lock.json
+├── Dockerfile
+├── compose.yaml
+├── src/
+│   ├── domain/
+│   ├── client/
+│   └── server/
+├── tests/
+│   ├── unit/
+│   └── e2e/
+└── docs/
+    ├── architecture.adoc
+    ├── tree-semantics.adoc
+    ├── open-questions.adoc
+    └── product.adoc
+----

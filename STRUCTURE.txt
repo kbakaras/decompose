@@ -1,8 +1,0 @@
-decompose/
-├── .gitignore
-├── AGENTS.md
-├── README.md
-└── docs/
-    ├── architecture.md
-    ├── open-questions.md
-    └── product.md

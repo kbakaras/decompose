@@ -1,0 +1,420 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
+import { DomainError, ROOT_ID, projectTree, normalizeText } from '../domain'
+import type { Session } from './session'
+import { Cell, type EditState, type FlowCell } from './Cell'
+import { focusAfterRemoval, navigate } from './interaction'
+import { layoutTree, NODE_WIDTH, NODE_MIN_HEIGHT } from './layout'
+import { beginSiblingDrag, isSiblingDragValid, siblingDropTarget, type DragPreview } from './sibling-drag'
+
+const nodeTypes = { cell: Cell }
+
+export function App({ session }: { session: Session }) {
+  return <ReactFlowProvider><Workspace session={session} /></ReactFlowProvider>
+}
+
+function Workspace({ session }: { session: Session }) {
+  const [, redraw] = useState(0)
+  const [revision, setRevision] = useState(0)
+  const [active, setActive] = useState(ROOT_ID)
+  const [edit, setEdit] = useState<EditState | null>(null)
+  const editRef = useRef<EditState | null>(null)
+  const [message, setMessage] = useState('')
+  const [notice, setNotice] = useState<string | null>(null)
+  const [help, setHelp] = useState(false)
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const actionsContainer = useRef<HTMLDivElement>(null)
+  const [heights, setHeights] = useState(new Map<string, number>())
+  const [positions, setPositions] = useState(new Map<string, { x: number; y: number }>())
+  const [layoutReady, setLayoutReady] = useState(false)
+  const initialFit = useRef(false)
+  const lastFocusTarget = useRef<{ id: string; x: number; y: number; height: number } | null>(null)
+  const [drag, setDrag] = useState<DragPreview | null>(null)
+  const dragRef = useRef<DragPreview | null>(null)
+  const updateDrag = useCallback((next: DragPreview | null) => {
+    dragRef.current = next
+    setDrag(next)
+  }, [])
+  const canvas = useRef<HTMLDivElement>(null)
+  const toolbar = useRef<HTMLButtonElement>(null)
+  const flow = useReactFlow<FlowCell>()
+  const tree = useMemo(() => projectTree(session.doc), [session, revision])
+  const previous = useRef(tree)
+  const ready = session.ready()
+  const participants = session.participants()
+  const connected = navigator.onLine && session.provider.configuration.websocketProvider.status === 'connected'
+  const others = participants.filter(person => person.clientId !== session.doc.clientID)
+  const documentTitle = tree.nodes.get(ROOT_ID)?.text || 'Новая декомпозиция'
+
+  useEffect(() => {
+    if (!actionsOpen) return
+    const closeOutside = (event: PointerEvent) => {
+      if (!actionsContainer.current?.contains(event.target as Node)) setActionsOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => document.removeEventListener('pointerdown', closeOutside)
+  }, [actionsOpen])
+
+  useEffect(() => {
+    const changed = () => setRevision(value => value + 1)
+    const refresh = () => redraw(value => value + 1)
+    const unsubscribeHistory = session.history.subscribe(refresh)
+    session.doc.on('update', changed)
+    session.provider.on('status', refresh)
+    session.provider.on('synced', refresh)
+    session.provider.awareness?.on('change', refresh)
+    window.addEventListener('online', refresh)
+    window.addEventListener('offline', refresh)
+    changed()
+    return () => {
+      unsubscribeHistory()
+      session.doc.off('update', changed)
+      session.provider.off('status', refresh)
+      session.provider.off('synced', refresh)
+      session.provider.awareness?.off('change', refresh)
+      window.removeEventListener('online', refresh)
+      window.removeEventListener('offline', refresh)
+    }
+  }, [session])
+
+  const updateEdit = useCallback((next: EditState | null) => {
+    const previousId = editRef.current?.id ?? null
+    editRef.current = next
+    setEdit(next)
+    if (previousId !== (next?.id ?? null)) session.provider.setAwarenessField('editingNode', next?.id ?? null)
+  }, [session])
+  const focusCanvas = useCallback(() => {
+    if (!editRef.current) canvas.current?.focus({ preventScroll: true })
+  }, [])
+  useEffect(() => {
+    session.provider.setAwarenessField('activeNode', active)
+    if (ready && !editRef.current) focusCanvas()
+  }, [active, ready, session, focusCanvas])
+  useEffect(() => {
+    if (!tree.nodes.has(active)) {
+      setActive(focusAfterRemoval(previous.current, tree, active))
+      updateEdit(null)
+      setMessage('Клеточка больше не видна. Выбран ближайший узел.')
+    }
+    previous.current = tree
+  }, [tree, active, updateEdit])
+
+  const measure = useCallback((id: string, height: number) => {
+    setHeights(old => old.get(id) === height ? old : new Map(old).set(id, height))
+  }, [])
+  useEffect(() => {
+    if (drag?.phase === 'dragging' && !isSiblingDragValid(tree, drag.snapshot)) {
+      updateDrag(null)
+      setNotice('Структура изменилась другим участником. Повтори перетаскивание.')
+    }
+  }, [tree, drag, updateDrag])
+  useEffect(() => {
+    if (!ready || !flow.viewportInitialized || drag?.phase === 'dragging' || [...tree.nodes.keys()].some(id => !heights.has(id))) return
+    let stale = false
+    layoutTree(tree, heights).then(async next => {
+      if (stale) return
+      if (!initialFit.current) {
+        const element = canvas.current
+        if (!element) return
+        // Используем готовую раскладку, а не ещё не обновлённые nodes в React Flow.
+        const bounds = getNodesBounds([...next].map(([id, position]) => ({
+          id, position, data: {}, width: NODE_WIDTH, height: heights.get(id) ?? NODE_MIN_HEIGHT,
+        })))
+        const viewport = getViewportForBounds(bounds, element.clientWidth, element.clientHeight, 0.2, 1, 0.25)
+        const applied = await flow.setViewport(viewport, { duration: 0 })
+        if (stale || !applied) return
+        initialFit.current = true
+      }
+      setPositions(next)
+      setLayoutReady(true)
+      if (dragRef.current?.phase === 'settling') updateDrag(null)
+    }).catch(error => {
+      if (!stale) {
+        if (dragRef.current?.phase === 'settling') updateDrag(null)
+        setNotice(`Не удалось рассчитать схему: ${String(error)}`)
+      }
+    })
+    return () => { stale = true }
+  }, [tree, heights, ready, drag?.phase, updateDrag, flow])
+  useEffect(() => {
+    if (!layoutReady || drag) return
+    const position = positions.get(active)
+    const bounds = canvas.current?.getBoundingClientRect()
+    if (!position || !bounds) return
+    const target = { id: active, ...position, height: heights.get(active) ?? NODE_MIN_HEIGHT }
+    const previousTarget = lastFocusTarget.current
+    lastFocusTarget.current = target
+    // Первый показ уже вписан целиком. Центрируем только после изменений цели.
+    if (!previousTarget || (previousTarget.id === target.id && previousTarget.x === target.x
+      && previousTarget.y === target.y && previousTarget.height === target.height)) return
+    const center = { x: position.x + NODE_WIDTH / 2, y: position.y + target.height / 2 }
+    const point = flow.flowToScreenPosition(center)
+    if (point.x < bounds.left + 150 || point.x > bounds.right - 150 || point.y < bounds.top + 80 || point.y > bounds.bottom - 80) {
+      void flow.setCenter(center.x, center.y, { zoom: flow.getZoom(), duration: 150 })
+    }
+  }, [active, positions, heights, flow, drag, layoutReady])
+
+  const run = useCallback((operation: () => void) => {
+    try { operation(); setNotice(null); return true }
+    catch (error) { setNotice(error instanceof DomainError ? error.message : String(error)); return false }
+  }, [])
+  const commit = useCallback(() => {
+    const current = editRef.current
+    if (!current) return
+    updateEdit(null)
+    if (run(() => session.commands.setText(current.id, current.draft))) {
+      setMessage(current.id === ROOT_ID
+        ? 'Tab — дочерняя клеточка · F2 — редактировать'
+        : 'Enter — соседняя клеточка · Tab — дочерняя · F2 — редактировать')
+    }
+  }, [run, session, updateEdit])
+  const startEdit = useCallback((id: string, isNew = false) => {
+    const lockedBy = session.participants().find(person => person.clientId !== session.doc.clientID && person.editingNode === id)
+    if (lockedBy) { setNotice(`${lockedBy.name} сейчас редактирует эту клеточку.`); return }
+    const node = projectTree(session.doc).nodes.get(id)
+    if (!node) return
+    setActive(id)
+    setNotice(null)
+    updateEdit({ id, draft: node.text, isNew })
+    setMessage('Enter — сохранить · Tab — сохранить и создать дочернюю · Esc — отменить')
+  }, [session, updateEdit])
+  const create = useCallback((kind: 'child' | 'sibling') => {
+    const parent = editRef.current?.id ?? active
+    commit()
+    const created = run(() => {
+      const id = kind === 'child' ? session.commands.createChild(parent) : session.commands.createSibling(parent)
+      startEdit(id, true)
+    })
+    if (!created) focusCanvas()
+  }, [active, commit, run, session, startEdit, focusCanvas])
+  const remove = useCallback(() => {
+    commit()
+    run(() => session.commands.deleteSubtree(active))
+    focusCanvas()
+  }, [active, commit, run, session, focusCanvas])
+  const cancel = useCallback(() => {
+    const current = editRef.current
+    if (!current) return
+    updateEdit(null)
+    if (current.isNew) {
+      const latest = projectTree(session.doc)
+      // Не удаляем чужую сохранённую работу или ребёнка, появившегося во время draft.
+      if (latest.nodes.get(current.id)?.text === '' && (latest.children.get(current.id)?.length ?? 0) === 0) {
+        run(() => {
+          if (!session.history.cancelCreation(current.id)) session.commands.deleteSubtree(current.id)
+        })
+      }
+    }
+    focusCanvas()
+  }, [session, updateEdit, run, focusCanvas])
+  const applyHistory = useCallback((direction: 'undo' | 'redo') => {
+    if (!session.ready() || editRef.current || dragRef.current) return
+    run(() => {
+      const before = projectTree(session.doc)
+      const command = session.history[direction]()
+      const after = projectTree(session.doc)
+      if (command) {
+        setActive(after.nodes.has(command.nodeId) ? command.nodeId : focusAfterRemoval(before, after, command.nodeId))
+      }
+      setMessage(command ? (direction === 'undo' ? 'Действие отменено.' : 'Действие повторено.') : 'Нет доступных действий.')
+    })
+    focusCanvas()
+  }, [session, run, focusCanvas])
+  const editorKey = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+    event.stopPropagation()
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'Escape') { event.preventDefault(); cancel() }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      commit()
+      focusCanvas()
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      if (event.shiftKey) { commit(); focusCanvas() } else create('child')
+    }
+  }, [cancel, commit, create, focusCanvas])
+  const onDraft = useCallback((text: string) => {
+    if (editRef.current) updateEdit({ ...editRef.current, draft: normalizeText(text) })
+  }, [updateEdit])
+
+  const startDrag = (_event: unknown, node: FlowCell) => {
+    commit()
+    const snapshot = beginSiblingDrag(projectTree(session.doc), node.id, positions, heights)
+    if (!snapshot) return
+    setActive(node.id)
+    updateDrag({ snapshot, position: node.position, target: null, phase: 'dragging' })
+    setMessage('Перетащи выше или ниже соседних клеточек. Esc — отменить.')
+    focusCanvas()
+  }
+  const moveDrag = (_event: unknown, node: FlowCell) => {
+    const current = dragRef.current
+    if (current?.phase !== 'dragging') return
+    updateDrag({ ...current, position: node.position, target: siblingDropTarget(current.snapshot, node.position) })
+  }
+  const stopDrag = (_event: unknown, node: FlowCell) => {
+    const current = dragRef.current
+    if (current?.phase !== 'dragging') return
+    const target = siblingDropTarget(current.snapshot, node.position)
+    if (!target || !isSiblingDragValid(projectTree(session.doc), current.snapshot)) {
+      updateDrag(null)
+      setMessage('Порядок не изменён.')
+    } else {
+      const moved = run(() => session.commands.move(node.id, current.snapshot.parentId, target.index))
+      updateDrag(moved ? { ...current, position: node.position, target: null, phase: 'settling' } : null)
+      if (moved) setMessage('Порядок клеточек изменён.')
+    }
+    focusCanvas()
+  }
+
+  const nodes: FlowCell[] = [...tree.nodes.values()].map(node => ({
+    id: node.id, type: 'cell',
+    position: drag?.snapshot.id === node.id ? drag.position : positions.get(node.id) ?? { x: 0, y: 0 },
+    style: { opacity: positions.has(node.id) ? 1 : 0, pointerEvents: positions.has(node.id) ? 'auto' : 'none' },
+    draggable: positions.has(node.id) && node.id !== ROOT_ID && edit?.id !== node.id && drag?.phase !== 'settling'
+      && (tree.children.get(node.parentId ?? '')?.length ?? 0) > 1,
+    zIndex: drag?.snapshot.id === node.id ? 1001 : 0,
+    measured: { width: NODE_WIDTH, height: heights.get(node.id) ?? NODE_MIN_HEIGHT },
+    selected: node.id === active,
+    data: {
+      node, index: (tree.children.get(node.parentId ?? '') ?? []).indexOf(node.id),
+      active: node.id === active, edit: edit?.id === node.id ? edit : null,
+      positioned: positions.has(node.id),
+      dropSide: drag?.target?.anchorId === node.id ? drag.target.side : null,
+      dragging: drag?.snapshot.id === node.id,
+      others: others.filter(person => person.activeNode === node.id || person.editingNode === node.id),
+      onDraft, onEditorKey: editorKey, onCommit: commit, onMeasure: measure,
+    },
+  }))
+  const edges: Edge[] = [...tree.nodes.values()].flatMap(node => node.parentId ? [{
+    id: node.id, source: node.parentId, target: node.id, type: 'smoothstep',
+    hidden: !positions.has(node.id) || !positions.has(node.parentId),
+    style: { stroke: '#bdb8aa', strokeWidth: 1.5 },
+  }] : [])
+  const dropAnchor = drag?.target ? positions.get(drag.target.anchorId) : undefined
+  const dropY = dropAnchor && drag?.target
+    ? dropAnchor.y + (drag.target.side === 'before' ? -14 : (heights.get(drag.target.anchorId) ?? NODE_MIN_HEIGHT) + 12)
+    : 0
+
+  const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!ready || editRef.current || event.nativeEvent.isComposing) return
+    if ((event.target as HTMLElement).closest('button, a, input, textarea, select')) return
+    if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return }
+    if (dragRef.current) {
+      event.preventDefault()
+      if (event.key === 'Escape' && dragRef.current.phase === 'dragging') {
+        updateDrag(null)
+        setMessage('Перетаскивание отменено.')
+      }
+      return
+    }
+    const ctrl = event.ctrlKey || event.metaKey
+    const key = event.key.toLowerCase()
+    if (ctrl && !event.altKey && (event.code === 'KeyZ' || key === 'z' || event.code === 'KeyY' || key === 'y')) {
+      event.preventDefault()
+      event.stopPropagation()
+      applyHistory(event.shiftKey || event.code === 'KeyY' || key === 'y' ? 'redo' : 'undo')
+      return
+    }
+    const action = () => {
+      if (event.key === 'Escape') { toolbar.current?.focus(); return }
+      if (event.key === 'Enter') { create('sibling'); return }
+      if (event.key === 'Tab' && !event.shiftKey) { create('child'); return }
+      if (event.key === 'F2') { startEdit(active); return }
+      if (event.key === 'Delete') { remove(); return }
+      if (event.key === ' ') { run(() => session.commands.toggleStatus(active)); return }
+      if ((event.key === 'Tab' && event.shiftKey) || (ctrl && event.key === 'ArrowLeft')) {
+        run(() => session.commands.outdent(active)); return
+      }
+      if (ctrl && event.key === 'ArrowRight') { run(() => session.commands.indent(active)); return }
+      if (ctrl && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        run(() => session.commands.reorder(active, event.key === 'ArrowUp' ? -1 : 1)); return
+      }
+      if (event.key.startsWith('Arrow')) setActive(navigate(tree, active, event.key))
+    }
+    if (['Escape', 'Enter', 'Tab', 'F2', 'Delete', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      event.preventDefault()
+      event.stopPropagation()
+      action()
+    }
+  }
+
+  return <div className="app">
+    <header className="topbar">
+      <a href="/" className="brand" aria-label="Decompose"><span className="brand-mark">⌘</span><span className="brand-name">decompose</span></a>
+      <h1 className="document-title" title={documentTitle}>{documentTitle}</h1>
+      <div className="connection" data-testid="connection" data-connected={String(connected)}
+        title={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}
+        aria-label={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}>
+        <i className={connected ? 'online' : 'offline'} /><span>{connected ? 'В сети' : 'Offline'}</span>
+      </div>
+      <div className="avatars" aria-label="Участники онлайн">{participants.slice(0, 3).map(person => <span key={person.clientId}
+        title={`${person.name}${person.clientId === session.doc.clientID ? ' (ты)' : ''}`}
+        style={{ background: person.color }}>{person.name.slice(-2)}</span>)}</div>
+      {participants.length > 3 && <span className="participant-count" title={participants.slice(3).map(person => person.name).join(', ')}>+{participants.length - 3}</span>}
+      <button className="icon-button" aria-label="Отменить действие" title="Отменить действие (Ctrl/⌘+Z)"
+        disabled={!ready || !!edit || !!drag || !session.history.canUndo} onClick={() => applyHistory('undo')}>↶</button>
+      <button className="icon-button" aria-label="Повторить действие" title="Повторить действие (Ctrl/⌘+Shift+Z, Ctrl+Y)"
+        disabled={!ready || !!edit || !!drag || !session.history.canRedo} onClick={() => applyHistory('redo')}>↷</button>
+      <button className="icon-button" aria-label="Вся схема" title="Показать всю схему" disabled={!layoutReady}
+        onClick={() => { void flow.fitView({ padding: 0.2, maxZoom: 1 }); focusCanvas() }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" /></svg>
+      </button>
+      <button className="icon-button" aria-label="Клавиши" title="Клавиатурная справка" aria-expanded={help}
+        onClick={() => { setHelp(value => !value); setActionsOpen(false) }}>?</button>
+      <div className="actions" ref={actionsContainer}
+        onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setActionsOpen(false) }}
+        onKeyDown={event => {
+          if (event.key === 'Escape') { event.preventDefault(); setActionsOpen(false); toolbar.current?.focus() }
+        }}>
+        <button ref={toolbar} className="icon-button" aria-label="Действия с клеточкой" title="Действия с клеточкой"
+          aria-expanded={actionsOpen} aria-controls="cell-actions"
+          onClick={() => { setActionsOpen(value => !value); setHelp(false) }}>⋯</button>
+        {actionsOpen && <div id="cell-actions" className="actions-panel" role="group" aria-label="Действия с выбранной клеточкой">
+          <button disabled={!ready} onClick={() => { setActionsOpen(false); create('child') }}>Дочерняя <kbd>Tab</kbd></button>
+          <button disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); create('sibling') }}>Рядом <kbd>Enter</kbd></button>
+          <button disabled={!ready} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
+          <button disabled={!ready} onClick={() => { setActionsOpen(false); commit(); run(() => session.commands.toggleStatus(active)); focusCanvas() }}>Статус <kbd>Space</kbd></button>
+          <button className="delete-button" aria-label="Удалить" disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
+        </div>}
+      </div>
+    </header>
+    <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown}
+      aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-ready={String(ready && layoutReady)}>
+      {ready ? <ReactFlow<FlowCell> nodes={nodes} edges={edges} nodeTypes={nodeTypes}
+        style={{ opacity: layoutReady ? 1 : 0, pointerEvents: layoutReady ? 'auto' : 'none' }}
+        nodesConnectable={false} nodesFocusable={false} edgesFocusable={false}
+        onNodeDragStart={startDrag} onNodeDrag={moveDrag} onNodeDragStop={stopDrag}
+        nodeDragThreshold={5} autoPanOnNodeDrag={false} zoomOnDoubleClick={false}
+        disableKeyboardA11y deleteKeyCode={null} selectionKeyCode={null} multiSelectionKeyCode={null}
+        minZoom={0.2} maxZoom={1.6} proOptions={{ hideAttribution: false }}
+        onNodeClick={(_event, node) => { if (node.id !== editRef.current?.id) { commit(); setActive(node.id); focusCanvas() } }}
+        onNodeDoubleClick={(_event, node) => startEdit(node.id)}
+        onPaneClick={() => { commit(); focusCanvas() }}>
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#d9d5c9" />
+        {dropAnchor && <ViewportPortal><div className="drop-indicator" data-testid="drop-indicator"
+          style={{ transform: `translate(${dropAnchor.x - 8}px, ${dropY}px)`, width: NODE_WIDTH + 16 }} /></ViewportPortal>}
+      </ReactFlow> : <div className="loading">{connected ? 'Открываем документ…' : 'Для первого открытия документа нужно соединение с сервером.'}</div>}
+      {notice && <div className="notice" role="alert"><span>{notice}</span>
+        <button aria-label="Закрыть сообщение" onClick={() => { setNotice(null); focusCanvas() }}>×</button>
+      </div>}
+      {help && <aside className="help-panel" aria-label="Клавиатурная справка">
+        <h2>Клавиатура и мышь</h2><p>Щёлкни клеточку или перейди к схеме клавишей Tab.</p>
+        {[
+          ['Tab / Enter', 'В навигации: child / sibling'], ['Стрелки', 'Parent, child и siblings'],
+          ['Ctrl + ↑ / ↓', 'Выше / ниже среди siblings'], ['Ctrl + → / ←', 'Indent / outdent'],
+          ['Shift + Tab', 'Outdent'], ['F2 / двойной клик', 'Редактировать текст'],
+          ['Space', 'Открыто / готово'], ['Delete', 'Удалить поддерево'],
+          ['Enter / Ctrl + Enter', 'В редакторе: сохранить'], ['Esc в редакторе', 'Отменить draft'],
+          ['Esc на схеме', 'Вернуться к панели действий'],
+          ['Ctrl + Z', 'Отменить действие'], ['Ctrl + Shift + Z / Y', 'Повторить действие'],
+        ].map(([key, label]) => <div className="help-row" key={key}><span>{label}</span><kbd>{key}</kbd></div>)}
+        <p>Мышью: тяни за любую часть клеточки вне редактирования текста, чтобы изменить порядок среди детей одного родителя. Esc отменяет drag.</p>
+        <p>На macOS вместо Ctrl можно использовать ⌘. Текст клеточки сохраняется целиком.</p>
+        <p>В редакторе undo/redo меняет только draft. На схеме — твои действия в этой вкладке. После перезагрузки история очищается.</p>
+        <button onClick={() => { setHelp(false); focusCanvas() }}>Вернуться к схеме</button>
+      </aside>}
+    </main>
+    <div id="keyboard-status" className="sr-only" role="status">{message}</div>
+  </div>
+}
