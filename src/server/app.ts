@@ -6,8 +6,8 @@ import express, { type ErrorRequestHandler } from 'express'
 import * as Y from 'yjs'
 import { Server } from '@hocuspocus/server'
 import { SQLite } from '@hocuspocus/extension-sqlite'
-import { createImportedDocument, initializeDocument, getStructures, normalizeText, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
-import { isDiagramId, type DiagramSummary } from '../shared/diagrams'
+import { createImportedDocument, initializeDocument, getStructures, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
+import { diagramTitle, normalizeTitle, isDiagramId, type DiagramSummary } from '../shared/diagrams'
 import { ImportError, IMPORT_JSON_LIMIT } from '../shared/diagram-import'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
@@ -60,7 +60,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     const doc = createImportedDocument(request.body)
     const id = randomUUID()
     try {
-      const title = readText(getStructures(doc).nodes.get(ROOT_ID)!) || 'Новая декомпозиция'
+      const title = diagramTitle(readText(getStructures(doc).nodes.get(ROOT_ID)!))
       storage.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
       response.status(201).json({ id, title } satisfies DiagramSummary)
     } finally { doc.destroy() }
@@ -72,7 +72,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     try {
       if (!live) Y.applyUpdate(doc, row.data)
       const root = getStructures(doc).nodes.get(ROOT_ID)
-      return { id: row.name, title: (root && readText(root)) || 'Новая декомпозиция' }
+      return { id: row.name, title: diagramTitle(root ? readText(root) : '') }
     } finally {
       if (!live) doc.destroy()
     }
@@ -90,7 +90,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     response.json(summarize(row))
   })
   app.post('/api/diagrams', (request, response) => {
-    const title = typeof request.body?.title === 'string' ? normalizeText(request.body.title).trim() : ''
+    const title = typeof request.body?.title === 'string' ? normalizeTitle(request.body.title) : ''
     if (!title || title.length > 500) {
       response.status(400).json({ error: 'Название должно содержать от 1 до 500 символов' })
       return

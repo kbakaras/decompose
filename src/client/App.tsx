@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
-import { DomainError, ROOT_ID, projectTree, normalizeText } from '../domain'
+import { DomainError, ROOT_ID, projectTree, normalizeText, readTextAlign } from '../domain'
+import { diagramTitle } from '../shared/diagrams'
 import type { Session } from './session'
 import { Cell, type EditState, type FlowCell } from './Cell'
 import { DiagramPicker } from './DiagramPicker'
@@ -70,7 +71,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const avatars = presence.named.filter(person => person.id !== identity.id)
   const connected = navigator.onLine && session.provider.configuration.websocketProvider.status === 'connected'
   const others = participants.filter(person => person.name && person.clientId !== session.doc.clientID)
-  const documentTitle = tree.nodes.get(ROOT_ID)?.text || 'Новая декомпозиция'
+  const documentTitle = diagramTitle(tree.nodes.get(ROOT_ID)?.text ?? '')
+  const textAlign = readTextAlign(session.doc)
   useEffect(() => { document.title = `${documentTitle} — Decompose` }, [documentTitle])
 
   useEffect(() => {
@@ -215,7 +217,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     setActive(id)
     setNotice(null)
     updateEdit({ id, draft: node.text, isNew })
-    setMessage('Enter — сохранить · Tab — сохранить и создать дочернюю · Esc — отменить')
+    setMessage('Enter — сохранить · Shift+Enter — перенос строки · Tab — сохранить и создать дочернюю · Esc — отменить')
   }), [session, updateEdit, withIdentity])
   const create = useCallback((kind: 'child' | 'sibling') => withIdentity(() => {
     const parent = editRef.current?.id ?? active
@@ -252,7 +254,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       const before = projectTree(session.doc)
       const command = session.history[direction]()
       const after = projectTree(session.doc)
-      if (command) {
+      if (command && command.kind !== 'set-text-align') {
         setActive(after.nodes.has(command.nodeId) ? command.nodeId : focusAfterRemoval(before, after, command.nodeId))
       }
       setMessage(command ? (direction === 'undo' ? 'Действие отменено.' : 'Действие повторено.') : 'Нет доступных действий.')
@@ -263,6 +265,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (event.nativeEvent.isComposing) return
     if (event.key === 'Escape') { event.preventDefault(); cancel() }
     if (event.key === 'Enter') {
+      if (event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) return
       event.preventDefault()
       commit()
       focusCanvas()
@@ -325,7 +328,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     selected: node.id === active,
     data: {
       node, index: (tree.children.get(node.parentId ?? '') ?? []).indexOf(node.id),
-      active: node.id === active, edit: edit?.id === node.id ? edit : null,
+      active: node.id === active, edit: edit?.id === node.id ? edit : null, textAlign,
       positioned: positions.has(node.id),
       dropSide: drag?.target?.anchorId === node.id ? drag.target.side : null,
       dragging: drag?.snapshot.id === node.id,
@@ -434,6 +437,16 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           <button disabled={!ready} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
           <button disabled={!ready} onClick={() => { setActionsOpen(false); commit(); change(() => session.commands.toggleStatus(active)) }}>Статус <kbd>Space</kbd></button>
           <button className="delete-button" aria-label="Удалить" disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
+          <fieldset className="diagram-settings" disabled={!ready || switching || !!drag}>
+            <legend>Схема</legend>
+            {/* Фокус остаётся внутри меню до штатного click по связанному checkbox. */}
+            <label tabIndex={-1}><input type="checkbox" checked={textAlign === 'center'} onChange={event => {
+              const next = event.target.checked ? 'center' : 'left'
+              setActionsOpen(false)
+              commit()
+              change(() => session.commands.setTextAlign(next))
+            }} />Текст карточек по центру</label>
+          </fieldset>
         </div>}
       </div>
     </>, header)}
@@ -464,6 +477,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Shift + Tab', 'Outdent'], ['F2 / двойной клик', 'Редактировать текст'],
           ['Space', 'Открыто / готово'], ['Delete', 'Удалить поддерево'],
           ['Enter / Ctrl + Enter', 'В редакторе: сохранить'], ['Esc в редакторе', 'Отменить draft'],
+          ['Shift + Enter', 'В редакторе: перенос строки'],
           ['Esc на схеме', 'Вернуться к панели действий'],
           ['Ctrl + Z', 'Отменить действие'], ['Ctrl + Shift + Z / Y', 'Повторить действие'],
         ].map(([key, label]) => <div className="help-row" key={key}><span>{label}</span><kbd>{key}</kbd></div>)}

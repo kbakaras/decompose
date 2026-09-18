@@ -6,6 +6,8 @@ import {
   normalizeText,
   readPlacement,
   readStatus,
+  readTextAlign,
+  type TextAlign,
   type NodeId,
   type NodeRecord,
   type OrderEntry,
@@ -22,7 +24,7 @@ export type IdFactory = () => string
 
 export class CommandOrigin {
   constructor(
-    public readonly kind: 'set-text' | 'toggle-status' | 'move-node' | 'delete-subtree' | 'create-node',
+    public readonly kind: 'set-text' | 'toggle-status' | 'move-node' | 'delete-subtree' | 'create-node' | 'set-text-align',
     public readonly nodeId: NodeId,
   ) {}
 }
@@ -76,6 +78,12 @@ export class TreeCommands {
     this.doc.transact(() => {
       node.set('status', readStatus(node) === 'open' ? 'done' : 'open')
     }, new CommandOrigin('toggle-status', nodeId))
+  }
+
+  setTextAlign(value: TextAlign): void {
+    if (value !== 'left' && value !== 'center') throw new DomainError('invalid-operation', 'Неизвестное выравнивание текста')
+    if (readTextAlign(this.doc) === value) return
+    this.doc.transact(() => getStructures(this.doc).settings.set('textAlign', value), new CommandOrigin('set-text-align', ROOT_ID))
   }
 
   move(nodeId: NodeId, parentId: NodeId, index: number): void {

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createBackend } from '../../src/server/app'
-import { DocumentHistory, ROOT_ID, SCHEMA_VERSION, TreeCommands, getStructures, projectTree } from '../../src/domain'
+import { DocumentHistory, ROOT_ID, SCHEMA_VERSION, TreeCommands, getStructures, projectTree, readTextAlign } from '../../src/domain'
 
 it('persists binary Yjs state through a full server restart', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'decompose-persistence-'))
@@ -12,15 +12,20 @@ it('persists binary Yjs state through a full server restart', async () => {
     const port = await backend.listen(0)
     expect(await (await fetch(`http://127.0.0.1:${port}/healthz`)).json()).toEqual({ status: 'ok' })
     const connection = await backend.collaboration.openDirectConnection('main')
-    const child = new TreeCommands(connection.document!).createChild(ROOT_ID, 'Сохранить мысль')
+    const child = new TreeCommands(connection.document!).createChild(ROOT_ID, 'Сохранить\nмысль')
+    new TreeCommands(connection.document!).setTextAlign('center')
+    new TreeCommands(connection.document!).setText(ROOT_ID, 'Корень\nс переносом')
     const hidden = new TreeCommands(connection.document!).createChild(ROOT_ID, 'Удалённая мысль')
     new TreeCommands(connection.document!).deleteSubtree(hidden)
     await connection.disconnect()
     await backend.close()
     backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
-    await backend.listen(0)
+    const restoredPort = await backend.listen(0)
     const restored = await backend.collaboration.openDirectConnection('main')
-    expect(projectTree(restored.document!).nodes.get(child)?.text).toBe('Сохранить мысль')
+    expect(projectTree(restored.document!).nodes.get(child)?.text).toBe('Сохранить\nмысль')
+    expect(projectTree(restored.document!).nodes.get(ROOT_ID)?.text).toBe('Корень\nс переносом')
+    expect(readTextAlign(restored.document!)).toBe('center')
+    expect((await (await fetch(`http://127.0.0.1:${restoredPort}/api/diagrams/main`)).json()).title).toBe('Корень с переносом')
     expect(projectTree(restored.document!).nodes.size).toBe(2)
     expect(projectTree(restored.document!).nodes.has(hidden)).toBe(false)
     await restored.disconnect()

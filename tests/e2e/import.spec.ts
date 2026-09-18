@@ -166,7 +166,7 @@ test('accepts GenericNode and namespaces, treats labels as plain text and ignore
   await upload(page, xml)
   await expect(page).toHaveURL(/\?diagram=[0-9a-f-]{36}$/)
   await ready(page)
-  await expect(page.locator('[data-cell-id="root"]')).toHaveAttribute('data-text', '<b>Обычный текст</b>')
+  await expect(page.locator('[data-cell-id="root"]')).toHaveAttribute('data-text', '<b>Обычный\nтекст</b>')
   await expect(page.locator('[data-status="done"]')).toHaveCount(0)
   await expect(page.locator('[data-cell-id="root"] b')).toHaveCount(0)
 })

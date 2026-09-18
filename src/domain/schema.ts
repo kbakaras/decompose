@@ -5,6 +5,7 @@ export const ROOT_ID = 'root'
 
 export type NodeId = string
 export type NodeStatus = 'open' | 'done'
+export type TextAlign = 'left' | 'center'
 
 export interface Placement {
   parentId: NodeId
@@ -25,6 +26,7 @@ export interface DocumentStructures {
   nodes: NodesMap
   orders: OrdersMap
   deletions: Y.Map<NodeId>
+  settings: Y.Map<unknown>
 }
 
 export function getStructures(doc: Y.Doc): DocumentStructures {
@@ -33,6 +35,7 @@ export function getStructures(doc: Y.Doc): DocumentStructures {
     nodes: doc.getMap<NodeRecord>('nodes'),
     orders: doc.getMap<Y.Array<OrderEntry>>('orders'),
     deletions: doc.getMap<NodeId>('deletions'),
+    settings: doc.getMap<unknown>('settings'),
   }
 }
 
@@ -100,5 +103,9 @@ export function isDeleted(node: NodeRecord): boolean {
 }
 
 export function normalizeText(text: string): string {
-  return text.replace(/[\r\n]+/g, ' ')
+  return text.replace(/\r\n?/g, '\n')
+}
+
+export function readTextAlign(doc: Y.Doc): TextAlign {
+  return getStructures(doc).settings.get('textAlign') === 'center' ? 'center' : 'left'
 }

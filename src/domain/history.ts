@@ -10,15 +10,15 @@ export class DocumentHistory {
   private readonly listeners = new Set<() => void>()
 
   constructor(doc: Y.Doc) {
-    const { nodes, orders, deletions } = getStructures(doc)
-    this.manager = new Y.UndoManager([nodes, orders, deletions], {
+    const { nodes, orders, deletions, settings } = getStructures(doc)
+    this.manager = new Y.UndoManager([nodes, orders, deletions, settings], {
       trackedOrigins: new Set([CommandOrigin]),
       captureTimeout: 0,
       ignoreRemoteMapChanges: false,
       // Yjs сначала восстанавливает прежние значения, затем удаляет новые.
       // При конфликте восстановление Y.Map может быть пропущено: не даём
       // следующему удалению оставить узел без text/status/placement.
-      deleteFilter: item => item.parent === deletions || item.parentSub === null,
+      deleteFilter: item => item.parent === deletions || item.parent === settings || item.parentSub === null,
     })
     this.manager.on('stack-item-added', ({ stackItem, origin }) => {
       if (origin instanceof CommandOrigin) stackItem.meta.set(COMMAND, origin)

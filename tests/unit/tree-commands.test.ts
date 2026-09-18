@@ -41,11 +41,11 @@ describe('TreeCommands', () => {
     const { doc, commands } = setup()
     const node = commands.createChild(ROOT_ID)
 
-    commands.setText(node, 'Строка\nбез переноса')
+    commands.setText(node, 'Строка\r\nс переносом')
     commands.toggleStatus(node)
 
     expect(projectTree(doc).nodes.get(node)).toMatchObject({
-      text: 'Строка без переноса',
+      text: 'Строка\nс переносом',
       status: 'done',
     })
   })

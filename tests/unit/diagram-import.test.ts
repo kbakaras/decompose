@@ -34,7 +34,7 @@ it('initializes fresh IDs, ordered placements and empty leaf orders without impo
     const tree = projectTree(doc)
     assertTreeInvariants(tree)
     const children = tree.children.get(ROOT_ID)!
-    expect(children.map(id => tree.nodes.get(id)?.text)).toEqual(['Текст узла', 'a'])
+    expect(children.map(id => tree.nodes.get(id)?.text)).toEqual(['Текст\nузла', 'a'])
     expect(tree.nodes.get(children[0])?.status).toBe('done')
     expect([...tree.nodes.values()].every(n => !n.recovered)).toBe(true)
     expect(children.every(id => !['source', 'z', 'a'].includes(id) && !projectTree(other).nodes.has(id))).toBe(true)
@@ -43,7 +43,7 @@ it('initializes fresh IDs, ordered placements and empty leaf orders without impo
     expect(history.canUndo).toBe(false)
     new TreeCommands(doc).setText(children[0], 'Изменено')
     history.undo()
-    expect(projectTree(doc).nodes.get(children[0])?.text).toBe('Текст узла')
+    expect(projectTree(doc).nodes.get(children[0])?.text).toBe('Текст\nузла')
     history.redo()
     expect(projectTree(doc).nodes.get(children[0])?.text).toBe('Изменено')
     const restored = new Y.Doc()

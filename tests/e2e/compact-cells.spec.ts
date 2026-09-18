@@ -20,6 +20,7 @@ test('compact cards show only text; Enter saves, a separate Enter creates a sibl
   await expect(card).toHaveCSS('padding-top', '8px')
   await expect.poll(() => card.evaluate(element => element.clientHeight)).toBeLessThan(46)
   await expect(card).toHaveCSS('background-color', 'rgb(255, 227, 161)')
+  await expect(card.locator('.cell-text')).toHaveCSS('color', 'rgb(32, 37, 28)')
   await expect(card).toHaveCSS('box-shadow', 'rgba(237, 172, 39, 0.2) 0px 0px 0px 3px, rgba(65, 71, 46, 0.04) 0px 5px 15px 0px')
   // Удержание клавиши после commit не должно создавать случайный sibling.
   await page.locator('main').dispatchEvent('keydown', { key: 'Enter', repeat: true })
@@ -29,6 +30,7 @@ test('compact cards show only text; Enter saves, a separate Enter creates a sibl
   await expect(card).toHaveText('Компактная мысль')
   await expect(card.locator('.cell-text')).toHaveCSS('text-decoration-line', 'none')
   await expect(card).toHaveCSS('background-color', 'rgb(199, 232, 167)')
+  await expect(card.locator('.cell-text')).toHaveCSS('color', 'rgb(32, 37, 28)')
   await expect(card).toHaveCSS('box-shadow', 'rgba(98, 140, 57, 0.2) 0px 0px 0px 3px, rgba(65, 71, 46, 0.04) 0px 5px 15px 0px')
   await page.keyboard.press('Enter')
   await expect(page.getByRole('textbox')).toBeFocused()
@@ -41,6 +43,7 @@ test('compact cards show only text; Enter saves, a separate Enter creates a sibl
   await expect(card).not.toHaveClass(/cell-draggable/)
   const editor = page.getByRole('textbox')
   await expect(editor).toHaveCSS('cursor', 'text')
+  await expect(editor).toHaveCSS('color', 'rgb(32, 37, 28)')
   await expect(card).toHaveCSS('border-color', 'rgb(98, 140, 57)')
   await expect(card).toHaveCSS('box-shadow', 'rgba(98, 140, 57, 0.267) 0px 0px 0px 3px')
   const bounds = (await editor.boundingBox())!
