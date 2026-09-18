@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { diagramUrl, isDiagramId, type DiagramSummary } from '../shared/diagrams'
+import { readYedFile } from './yed-import'
 
 const catalogKey = 'decompose:diagrams:v1'
 function readCatalog(): DiagramSummary[] {
@@ -18,12 +19,54 @@ export function DiagramPicker({ id, title, connected, navigate, requestIdentity 
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const importingRef = useRef(false)
+  const mounted = useRef(true)
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<DiagramSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+
+  async function importFile(file: File) {
+    if (importingRef.current || creating || !connected) return
+    importingRef.current = true
+    setImporting(true)
+    setMessage('')
+    try {
+      const data = await readYedFile(file)
+      if (!mounted.current || !await requestIdentity() || !mounted.current) return
+      const response = await fetch('/api/diagrams/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+        signal: AbortSignal.timeout(30000),
+      }).catch(() => {
+        throw new Error('Не удалось завершить импорт. Проверь соединение и список схем перед повтором: сервер мог успеть сохранить схему.')
+      })
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !isDiagramId(result?.id) || typeof result?.title !== 'string') {
+        throw new Error(result?.error || 'Не удалось импортировать схему. Проверь соединение и список схем перед повтором.')
+      }
+      const created: DiagramSummary = result
+      const catalog = [...readCatalog(), created]
+      saveCatalog(catalog)
+      if (!mounted.current) return
+      setItems(catalog)
+      await navigate(diagramUrl(created.id))
+      dialog.current?.close()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Не удалось импортировать схему.')
+    } finally {
+      importingRef.current = false
+      setImporting(false)
+    }
+  }
 
   useEffect(() => {
     const cached = readCatalog()
@@ -63,15 +106,17 @@ export function DiagramPicker({ id, title, connected, navigate, requestIdentity 
       </button>
     </h1>
     <dialog ref={dialog} className="diagrams-dialog" aria-labelledby="diagrams-heading"
+      onCancel={event => { if (importing) event.preventDefault() }}
       onClose={() => { setOpen(false); trigger.current?.focus() }}>
       <div className="diagrams-heading"><h2 id="diagrams-heading">Схемы</h2>
-        <button className="icon-button" aria-label="Закрыть список схем" onClick={() => dialog.current?.close()}>×</button>
+        <button className="icon-button" aria-label="Закрыть список схем" disabled={importing} onClick={() => dialog.current?.close()}>×</button>
       </div>
       {loading && <p role="status">Загружаем список…</p>}
       {message && <p role="alert">{message}</p>}
       <nav aria-label="Список схем" className="diagrams-list">
         {items.map(item => <a key={item.id} href={diagramUrl(item.id)} aria-current={item.id === id ? 'page' : undefined}
           onClick={event => {
+            if (importing) { event.preventDefault(); return }
             if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return
             event.preventDefault()
             dialog.current?.close()
@@ -82,7 +127,7 @@ export function DiagramPicker({ id, title, connected, navigate, requestIdentity 
       </nav>
       <form className="diagram-create" onSubmit={async event => {
         event.preventDefault()
-        if (creating || !name.trim()) return
+        if (creating || importingRef.current || !connected || !name.trim()) return
         setCreating(true)
         setMessage('')
         try {
@@ -104,11 +149,22 @@ export function DiagramPicker({ id, title, connected, navigate, requestIdentity 
       }}>
         <label htmlFor="diagram-name">Новая схема</label>
         <div><input id="diagram-name" value={name} onChange={event => setName(event.target.value)}
-          placeholder="Название" maxLength={500} required disabled={creating || !connected} />
-          <button type="submit" disabled={creating || !connected || !name.trim()}>{creating ? 'Создаём…' : 'Создать'}</button>
+          placeholder="Название" maxLength={500} required disabled={creating || importing || !connected} />
+          <button type="submit" disabled={creating || importing || !connected || !name.trim()}>{creating ? 'Создаём…' : 'Создать'}</button>
         </div>
         {!connected && <p>Для создания схемы нужно соединение с сервером.</p>}
       </form>
+      <div className="diagram-import">
+        <input ref={fileInput} type="file" accept=".graphml" aria-label="Файл yEd GraphML" hidden onChange={event => {
+          const file = event.currentTarget.files?.[0]
+          event.currentTarget.value = ''
+          if (file) void importFile(file)
+        }} />
+        <button type="button" disabled={creating || importing || !connected} onClick={() => fileInput.current?.click()}>
+          {importing ? 'Импортируем…' : 'Импорт из yEd…'}
+        </button>
+        <p>GraphML: иерархия и порядок, до 1000 узлов и 5 МиБ. Откроется отдельная схема.</p>
+      </div>
     </dialog>
   </>
 }

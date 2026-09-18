@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:y="http://www.yworks.com/xml/graphml">
+  <key id="graphics" for="node" yfiles.type="nodegraphics"/>
+  <graph id="G" edgedefault="directed">
+    <node id="n0"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="0" y="673.75" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Учебная схема<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n1"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="285.5" y="192.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 1<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n2"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="0" width="245" height="57"/>
+      <y:Fill color="#99CC00" transparent="false"/>
+      <y:NodeLabel>Узел 2<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n3"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="285.5" y="673.75" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 3<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n4"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="539" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 4<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n5"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="539" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 5<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n6"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="77" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 6<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n7"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="231" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 7<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n8"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="308" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 8<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n9"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="308" width="245" height="57"/>
+      <y:Fill color="#FFFF99" transparent="false"/>
+      <y:NodeLabel>Узел 9<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n10"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="154" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 10<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n11"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="423.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 11<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n12"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="385" width="245" height="57"/>
+      <y:Fill color="#FFFF99" transparent="false"/>
+      <y:NodeLabel>Узел 12<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n13"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="154" width="245" height="57"/>
+      <y:Fill color="#FFFF99" transparent="false"/>
+      <y:NodeLabel>Узел 13<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n14"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="616" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 14<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n15"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="616" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 15<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n16"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="731.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 16<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n17"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="693" width="245" height="57"/>
+      <y:Fill color="#FFFF99" transparent="false"/>
+      <y:NodeLabel>Узел 17<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n18"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="770" width="245" height="57"/>
+      <y:Fill color="#FFFF99" transparent="false"/>
+      <y:NodeLabel>Узел 18<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n19"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="818.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 19<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n20"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="462" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 20<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n21"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="285.5" y="1011" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 21<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n22"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="895.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 22<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n23"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="972.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 23<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n24"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="1049.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 24<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n25"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="571" y="1126.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 25<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n26"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="856.5" y="895.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 26<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <node id="n27"><data key="graphics"><y:ShapeNode>
+      <y:Geometry x="1142" y="895.5" width="245" height="57"/>
+      <y:Fill color="#FFCC00" transparent="false"/>
+      <y:NodeLabel>Узел 27<y:LabelModel><y:SmartNodeLabelModel distance="4.0"/></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0"/></y:ModelParameter></y:NodeLabel>
+      <y:Shape type="rectangle"/>
+    </y:ShapeNode></data></node>
+    <edge id="e0-1" source="n0" target="n1"/>
+    <edge id="e0-3" source="n0" target="n3"/>
+    <edge id="e0-21" source="n0" target="n21"/>
+    <edge id="e1-2" source="n1" target="n2"/>
+    <edge id="e1-6" source="n1" target="n6"/>
+    <edge id="e1-7" source="n1" target="n7"/>
+    <edge id="e1-8" source="n1" target="n8"/>
+    <edge id="e1-10" source="n1" target="n10"/>
+    <edge id="e1-11" source="n1" target="n11"/>
+    <edge id="e3-4" source="n3" target="n4"/>
+    <edge id="e3-14" source="n3" target="n14"/>
+    <edge id="e3-16" source="n3" target="n16"/>
+    <edge id="e3-19" source="n3" target="n19"/>
+    <edge id="e4-5" source="n4" target="n5"/>
+    <edge id="e8-9" source="n8" target="n9"/>
+    <edge id="e10-13" source="n10" target="n13"/>
+    <edge id="e11-12" source="n11" target="n12"/>
+    <edge id="e11-20" source="n11" target="n20"/>
+    <edge id="e14-15" source="n14" target="n15"/>
+    <edge id="e16-17" source="n16" target="n17"/>
+    <edge id="e16-18" source="n16" target="n18"/>
+    <edge id="e21-22" source="n21" target="n22"/>
+    <edge id="e21-23" source="n21" target="n23"/>
+    <edge id="e21-24" source="n21" target="n24"/>
+    <edge id="e21-25" source="n21" target="n25"/>
+    <edge id="e22-26" source="n22" target="n26"/>
+    <edge id="e26-27" source="n26" target="n27"/>
+  </graph>
+</graphml>

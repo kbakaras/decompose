@@ -20,7 +20,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .diagrams-list a { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-radius: 5px; color: inherit; text-decoration: none; font-size: 14px; overflow-wrap: anywhere; }
 .diagrams-list a:hover, .diagrams-list a[aria-current] { background: #edf0e5; }.diagrams-list small { flex-shrink: 0; color: #727c6e; font-size: 11px; }
 .diagram-create { border-top: 1px solid #dddccf; padding-top: 16px; }.diagram-create label { display: block; margin-bottom: 8px; font-size: 13px; }.diagram-create > div { display: flex; gap: 8px; }
-.diagram-create input { flex: 1; width: 0; min-width: 0; padding: 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; }.diagram-create button { padding: 8px 12px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; }
+.diagram-create input { flex: 1; width: 0; min-width: 0; padding: 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; }.diagram-create button, .diagram-import button { padding: 8px 12px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; }
+.diagram-import { margin-top: 16px; }.diagram-import p { margin-bottom: 0; color: #596252; }
 .connection { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #727c6e; white-space: nowrap; flex-shrink: 0; }
 .connection i { width: 6px; height: 6px; border-radius: 50%; }.online { background: #5a8762; }.offline { background: #c4813f; }
 .avatars { display: flex; margin-left: 4px; flex-shrink: 0; }.avatars span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; border: 2px solid #f6f4ed; margin-left: -4px; color: white; font-size: 9px; }

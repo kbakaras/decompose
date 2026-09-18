@@ -6,8 +6,9 @@ import express, { type ErrorRequestHandler } from 'express'
 import * as Y from 'yjs'
 import { Server } from '@hocuspocus/server'
 import { SQLite } from '@hocuspocus/extension-sqlite'
-import { initializeDocument, getStructures, normalizeText, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
+import { createImportedDocument, initializeDocument, getStructures, normalizeText, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
 import { isDiagramId, type DiagramSummary } from '../shared/diagrams'
+import { ImportError, IMPORT_JSON_LIMIT } from '../shared/diagram-import'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
   mkdirSync(options.dataDir, { recursive: true })
@@ -51,10 +52,20 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   const app = express()
   app.disable('x-powered-by')
   app.get('/healthz', (_request, response) => response.json({ status: 'ok' }))
-  app.use('/api', express.json({ limit: '16kb' }), (_request, response, next) => {
+  app.use('/api', (_request, response, next) => {
     response.setHeader('Cache-Control', 'no-store')
     next()
   })
+  app.post('/api/diagrams/import', express.json({ limit: IMPORT_JSON_LIMIT }), (request, response) => {
+    const doc = createImportedDocument(request.body)
+    const id = randomUUID()
+    try {
+      const title = readText(getStructures(doc).nodes.get(ROOT_ID)!) || 'Новая декомпозиция'
+      storage.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
+      response.status(201).json({ id, title } satisfies DiagramSummary)
+    } finally { doc.destroy() }
+  })
+  app.use('/api', express.json({ limit: '16kb' }))
   const summarize = (row: { name: string; data: Buffer }): DiagramSummary => {
     const live = collaboration.documents.get(row.name)
     const doc = live ?? new Y.Doc()
@@ -97,7 +108,9 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   const apiError: ErrorRequestHandler = (error, _request, response, _next) => {
     const status = error.status === 400 || error.status === 413 ? error.status : 500
     if (status === 500) console.error(error)
-    response.status(status).json({ error: status === 500 ? 'Не удалось выполнить запрос' : 'Некорректный запрос' })
+    response.status(status).json({ error: error instanceof ImportError ? error.message
+      : status === 413 ? 'Превышен допустимый размер запроса.'
+        : status === 500 ? 'Не удалось выполнить запрос' : 'Некорректный запрос' })
   }
   app.use('/api', apiError)
   app.use(express.static(options.clientDir, { maxAge: 0 }))
