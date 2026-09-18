@@ -1,19 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
 import { DomainError, ROOT_ID, projectTree, normalizeText } from '../domain'
 import type { Session } from './session'
 import { Cell, type EditState, type FlowCell } from './Cell'
+import { DiagramPicker } from './DiagramPicker'
 import { focusAfterRemoval, navigate } from './interaction'
 import { layoutTree, NODE_WIDTH, NODE_MIN_HEIGHT } from './layout'
 import { beginSiblingDrag, isSiblingDragValid, siblingDropTarget, type DragPreview } from './sibling-drag'
 
 const nodeTypes = { cell: Cell }
 
-export function App({ session }: { session: Session }) {
-  return <ReactFlowProvider><Workspace session={session} /></ReactFlowProvider>
+interface WorkspaceProps {
+  session: Session
+  header: HTMLElement
+  switching: boolean
+  navigate: (url: string) => Promise<void>
+  registerBeforeLeave: (callback: () => void) => () => void
 }
 
-function Workspace({ session }: { session: Session }) {
+export function App(props: WorkspaceProps) {
+  return <ReactFlowProvider><Workspace {...props} /></ReactFlowProvider>
+}
+
+function Workspace({ session, header, switching, navigate: navigateToDiagram, registerBeforeLeave }: WorkspaceProps) {
   const [, redraw] = useState(0)
   const [revision, setRevision] = useState(0)
   const [active, setActive] = useState(ROOT_ID)
@@ -42,9 +52,14 @@ function Workspace({ session }: { session: Session }) {
   const previous = useRef(tree)
   const ready = session.ready()
   const participants = session.participants()
+  const avatars = [...new Map([
+    [session.identity.id, { ...session.identity, userId: session.identity.id, clientId: session.doc.clientID, activeNode: null, editingNode: null }],
+    ...participants.filter(person => person.userId !== session.identity.id).map(person => [person.userId, person] as const),
+  ]).values()]
   const connected = navigator.onLine && session.provider.configuration.websocketProvider.status === 'connected'
   const others = participants.filter(person => person.clientId !== session.doc.clientID)
   const documentTitle = tree.nodes.get(ROOT_ID)?.text || 'Новая декомпозиция'
+  useEffect(() => { document.title = `${documentTitle} — Decompose` }, [documentTitle])
 
   useEffect(() => {
     if (!actionsOpen) return
@@ -88,8 +103,8 @@ function Workspace({ session }: { session: Session }) {
   }, [])
   useEffect(() => {
     session.provider.setAwarenessField('activeNode', active)
-    if (ready && !editRef.current) focusCanvas()
-  }, [active, ready, session, focusCanvas])
+    if (ready && !switching && !editRef.current) focusCanvas()
+  }, [active, ready, switching, session, focusCanvas])
   useEffect(() => {
     if (!tree.nodes.has(active)) {
       setActive(focusAfterRemoval(previous.current, tree, active))
@@ -168,6 +183,12 @@ function Workspace({ session }: { session: Session }) {
         : 'Enter — соседняя клеточка · Tab — дочерняя · F2 — редактировать')
     }
   }, [run, session, updateEdit])
+  useEffect(() => registerBeforeLeave(() => {
+    commit()
+    updateDrag(null)
+    setActionsOpen(false)
+    setHelp(false)
+  }), [registerBeforeLeave, commit, updateDrag])
   const startEdit = useCallback((id: string, isNew = false) => {
     const lockedBy = session.participants().find(person => person.clientId !== session.doc.clientID && person.editingNode === id)
     if (lockedBy) { setNotice(`${lockedBy.name} сейчас редактирует эту клеточку.`); return }
@@ -339,23 +360,22 @@ function Workspace({ session }: { session: Session }) {
     }
   }
 
-  return <div className="app">
-    <header className="topbar">
-      <a href="/" className="brand" aria-label="Decompose"><span className="brand-mark">⌘</span><span className="brand-name">decompose</span></a>
-      <h1 className="document-title" title={documentTitle}>{documentTitle}</h1>
+  return <>
+    {createPortal(<>
+      <DiagramPicker id={session.id} title={documentTitle} connected={connected} navigate={navigateToDiagram} />
       <div className="connection" data-testid="connection" data-connected={String(connected)}
         title={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}
         aria-label={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}>
         <i className={connected ? 'online' : 'offline'} /><span>{connected ? 'В сети' : 'Offline'}</span>
       </div>
-      <div className="avatars" aria-label="Участники онлайн">{participants.slice(0, 3).map(person => <span key={person.clientId}
-        title={`${person.name}${person.clientId === session.doc.clientID ? ' (ты)' : ''}`}
+      <div className="avatars" aria-label="Участники">{avatars.slice(0, 3).map(person => <span key={person.userId} data-user-id={person.userId}
+        title={`${person.name}${person.userId === session.identity.id ? ' (ты)' : ''}`}
         style={{ background: person.color }}>{person.name.slice(-2)}</span>)}</div>
-      {participants.length > 3 && <span className="participant-count" title={participants.slice(3).map(person => person.name).join(', ')}>+{participants.length - 3}</span>}
+      {avatars.length > 3 && <span className="participant-count" title={avatars.slice(3).map(person => person.name).join(', ')}>+{avatars.length - 3}</span>}
       <button className="icon-button" aria-label="Отменить действие" title="Отменить действие (Ctrl/⌘+Z)"
-        disabled={!ready || !!edit || !!drag || !session.history.canUndo} onClick={() => applyHistory('undo')}>↶</button>
+        disabled={switching || !ready || !!edit || !!drag || !session.history.canUndo} onClick={() => applyHistory('undo')}>↶</button>
       <button className="icon-button" aria-label="Повторить действие" title="Повторить действие (Ctrl/⌘+Shift+Z, Ctrl+Y)"
-        disabled={!ready || !!edit || !!drag || !session.history.canRedo} onClick={() => applyHistory('redo')}>↷</button>
+        disabled={switching || !ready || !!edit || !!drag || !session.history.canRedo} onClick={() => applyHistory('redo')}>↷</button>
       <button className="icon-button" aria-label="Вся схема" title="Показать всю схему" disabled={!layoutReady}
         onClick={() => { void flow.fitView({ padding: 0.2, maxZoom: 1 }); focusCanvas() }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" /></svg>
@@ -367,7 +387,7 @@ function Workspace({ session }: { session: Session }) {
         onKeyDown={event => {
           if (event.key === 'Escape') { event.preventDefault(); setActionsOpen(false); toolbar.current?.focus() }
         }}>
-        <button ref={toolbar} className="icon-button" aria-label="Действия с клеточкой" title="Действия с клеточкой"
+        <button ref={toolbar} disabled={switching} className="icon-button" aria-label="Действия с клеточкой" title="Действия с клеточкой"
           aria-expanded={actionsOpen} aria-controls="cell-actions"
           onClick={() => { setActionsOpen(value => !value); setHelp(false) }}>⋯</button>
         {actionsOpen && <div id="cell-actions" className="actions-panel" role="group" aria-label="Действия с выбранной клеточкой">
@@ -378,9 +398,9 @@ function Workspace({ session }: { session: Session }) {
           <button className="delete-button" aria-label="Удалить" disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
         </div>}
       </div>
-    </header>
-    <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown}
-      aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-ready={String(ready && layoutReady)}>
+    </>, header)}
+    <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown} inert={switching}
+      aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-diagram-id={session.id} data-ready={String(ready && layoutReady && !switching)}>
       {ready ? <ReactFlow<FlowCell> nodes={nodes} edges={edges} nodeTypes={nodeTypes}
         style={{ opacity: layoutReady ? 1 : 0, pointerEvents: layoutReady ? 'auto' : 'none' }}
         nodesConnectable={false} nodesFocusable={false} edgesFocusable={false}
@@ -416,5 +436,5 @@ function Workspace({ session }: { session: Session }) {
       </aside>}
     </main>
     <div id="keyboard-status" className="sr-only" role="status">{message}</div>
-  </div>
+  </>
 }

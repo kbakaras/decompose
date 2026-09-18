@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+
+const brandingFiles = ['/brand/logo.png', '/favicon.ico', '/favicon-32.png', '/apple-touch-icon.png']
 
 export default defineConfig({
   plugins: [react(), {
@@ -8,11 +11,13 @@ export default defineConfig({
     apply: 'build',
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle).filter(name => !name.endsWith('.map'))
-      const version = createHash('sha256').update(files.join('|')).digest('hex').slice(0, 12)
+      const hash = createHash('sha256').update(files.join('|'))
+      for (const file of brandingFiles) hash.update(readFileSync(new URL(`./public${file}`, import.meta.url)))
+      const version = hash.digest('hex').slice(0, 12)
       // Кешируется оболочка приложения; документ хранится только в IndexedDB.
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: `
 const CACHE = 'decompose-shell-${version}';
-const FILES = ${JSON.stringify(['/','/index.html', ...files.filter(name => name !== 'index.html').map(name => `/${name}`)])};
+const FILES = ${JSON.stringify(['/','/index.html', ...brandingFiles, ...files.filter(name => name !== 'index.html').map(name => `/${name}`)])};
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
 });
@@ -42,6 +47,7 @@ self.addEventListener('fetch', event => {
         ws: true,
       },
       '/healthz': 'http://127.0.0.1:3000',
+      '/api': 'http://127.0.0.1:3000',
     },
   },
 })

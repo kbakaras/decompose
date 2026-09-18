@@ -13,9 +13,17 @@ decompose/
 ├── package-lock.json
 ├── Dockerfile
 ├── compose.yaml
+├── assets/branding/logo-source.png
+├── public/
+│   ├── brand/logo.png
+│   ├── favicon.ico
+│   ├── favicon-32.png
+│   └── apple-touch-icon.png
+├── scripts/prepare-branding.py
 ├── src/
 │   ├── domain/
 │   ├── client/
+│   ├── shared/
 │   └── server/
 ├── tests/
 │   ├── unit/

@@ -1,10 +1,13 @@
 import type { AddressInfo } from 'node:net'
 import { mkdirSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
-import express from 'express'
+import express, { type ErrorRequestHandler } from 'express'
+import * as Y from 'yjs'
 import { Server } from '@hocuspocus/server'
 import { SQLite } from '@hocuspocus/extension-sqlite'
-import { initializeDocument, getStructures, SCHEMA_VERSION } from '../domain'
+import { initializeDocument, getStructures, normalizeText, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
+import { isDiagramId, type DiagramSummary } from '../shared/diagrams'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
   mkdirSync(options.dataDir, { recursive: true })
@@ -17,7 +20,9 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     debounce: 100,
     maxDebounce: 500,
     async onAuthenticate({ documentName }) {
-      if (documentName !== 'main') throw new Error('Неизвестный документ')
+      if (!isDiagramId(documentName) || !storage.db?.prepare('SELECT 1 FROM documents WHERE name = ?').get(documentName)) {
+        throw new Error('Неизвестный документ')
+      }
       return {}
     },
     async onUpgrade({ request, socket }) {
@@ -39,6 +44,55 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   const app = express()
   app.disable('x-powered-by')
   app.get('/healthz', (_request, response) => response.json({ status: 'ok' }))
+  app.use('/api', express.json({ limit: '16kb' }), (_request, response, next) => {
+    response.setHeader('Cache-Control', 'no-store')
+    next()
+  })
+  const summarize = (row: { name: string; data: Buffer }): DiagramSummary => {
+    const live = collaboration.documents.get(row.name)
+    const doc = live ?? new Y.Doc()
+    try {
+      if (!live) Y.applyUpdate(doc, row.data)
+      const root = getStructures(doc).nodes.get(ROOT_ID)
+      return { id: row.name, title: (root && readText(root)) || 'Новая декомпозиция' }
+    } finally {
+      if (!live) doc.destroy()
+    }
+  }
+  app.get('/api/diagrams', (_request, response) => {
+    const rows = storage.db!.prepare('SELECT name, data FROM documents ORDER BY rowid').all() as { name: string; data: Buffer }[]
+    response.json(rows.filter(row => isDiagramId(row.name)).map(summarize))
+  })
+  app.get('/api/diagrams/:id', (request, response) => {
+    const id = request.params.id
+    const row = isDiagramId(id)
+      ? storage.db!.prepare('SELECT name, data FROM documents WHERE name = ?').get(id) as { name: string; data: Buffer } | undefined
+      : undefined
+    if (!row) { response.status(404).json({ error: 'Схема не найдена' }); return }
+    response.json(summarize(row))
+  })
+  app.post('/api/diagrams', (request, response) => {
+    const title = typeof request.body?.title === 'string' ? normalizeText(request.body.title).trim() : ''
+    if (!title || title.length > 500) {
+      response.status(400).json({ error: 'Название должно содержать от 1 до 500 символов' })
+      return
+    }
+    const id = randomUUID()
+    const doc = new Y.Doc()
+    try {
+      initializeDocument(doc)
+      getStructures(doc).nodes.get(ROOT_ID)!.set('text', title)
+      storage.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
+    } finally { doc.destroy() }
+    response.status(201).json({ id, title } satisfies DiagramSummary)
+  })
+  app.use('/api', (_request, response) => { response.status(404).json({ error: 'Неизвестный API-маршрут' }) })
+  const apiError: ErrorRequestHandler = (error, _request, response, _next) => {
+    const status = error.status === 400 || error.status === 413 ? error.status : 500
+    if (status === 500) console.error(error)
+    response.status(status).json({ error: status === 500 ? 'Не удалось выполнить запрос' : 'Некорректный запрос' })
+  }
+  app.use('/api', apiError)
   app.use(express.static(options.clientDir, { maxAge: 0 }))
   app.get('/', (_request, response) => response.sendFile(resolve(options.clientDir, 'index.html')))
   const server = transport.httpServer
