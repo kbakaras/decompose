@@ -146,6 +146,39 @@ async function dragTo(page: Page, sourceId: string, targetId: string, side: 'bef
   await expect(source.locator('.cell-text')).toHaveCSS('cursor', 'move')
 }
 
+test('decorative handles do not intercept the pointer or offer connections', async ({ page }) => {
+  const response = await page.request.post('/api/diagrams', { data: { title: 'Декоративные точки' } })
+  const { id } = await response.json()
+  await page.goto(`/?diagram=${id}`)
+  await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
+  await cell(page, 'root').click()
+  const inactive = await create(page, 'Tab', 'Неактивная карточка')
+  const active = await create(page, 'Enter', 'Активная карточка')
+  await page.getByRole('button', { name: 'Вся схема' }).click()
+  await expect(page.locator('.react-flow__edge')).toHaveCount(2)
+  for (const nodeId of ['root', inactive, active]) {
+    const card = cell(page, nodeId)
+    await card.click({ trial: true })
+    const cursor = nodeId === active ? 'move' : 'grab'
+    const handles = card.locator('.react-flow__handle')
+    for (const handle of await handles.all()) {
+      await expect(handle).not.toHaveClass(/connectionindicator/)
+      await expect(handle).toHaveCSS('pointer-events', 'none')
+      await expect(handle).toHaveCSS('cursor', cursor)
+      const bounds = (await handle.boundingBox())!
+      const isLeft = await handle.evaluate(element => element.classList.contains('react-flow__handle-left'))
+      // Проверяем половину декоративной точки, лежащую внутри карточки.
+      const point = { x: bounds.x + bounds.width * (isLeft ? 0.75 : 0.25), y: bounds.y + bounds.height / 2 }
+      await page.mouse.move(point.x, point.y)
+      const hit = await page.evaluate(({ x, y }) => {
+        const target = document.elementFromPoint(x, y)!
+        return { handle: target.classList.contains('react-flow__handle'), cursor: getComputedStyle(target).cursor }
+      }, point)
+      expect(hit).toEqual({ handle: false, cursor })
+    }
+  }
+})
+
 test('canvas, root and a non-reorderable cell share pan cursors and move the viewport', async ({ page }) => {
   await open(page)
   await cell(page, 'root').click()

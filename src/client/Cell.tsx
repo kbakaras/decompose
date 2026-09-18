@@ -66,11 +66,11 @@ export const Cell = memo(function Cell({ data, draggable }: NodeProps<FlowCell>)
     data-cell-id={node.id} data-parent-id={node.parentId ?? ''} data-order={data.index}
     data-status={node.status} data-active={String(data.active)} data-text={node.text}
     data-editing-by={editingBy} title={selectedBy || undefined} aria-label={`${text}. ${details}`}>
-    {node.parentId !== null && <Handle type="target" position={Position.Left} />}
+    {node.parentId !== null && <Handle type="target" position={Position.Left} isConnectable={false} />}
     {editing ? <textarea ref={editor} className="nodrag nopan nowheel cell-editor" aria-label="Текст клеточки"
       value={edit.draft} rows={1} onChange={event => data.onDraft(event.target.value)}
       onKeyDown={data.onEditorKey} onBlur={data.onCommit} spellCheck />
       : <div className="cell-text">{node.text}</div>}
-    <Handle type="source" position={Position.Right} />
+    <Handle type="source" position={Position.Right} isConnectable={false} />
   </div>
 })
