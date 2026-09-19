@@ -12,6 +12,11 @@ import { layoutTree, NODE_WIDTH, NODE_MIN_HEIGHT } from './layout'
 import { beginSiblingDrag, isSiblingDragValid, siblingDropTarget, type DragPreview } from './sibling-drag'
 import { browserIdentity, initials, subscribeIdentity } from './identity'
 import { summarizeParticipants } from './presence'
+import { FileActions } from './FileActions'
+import { downloadDiagram } from './diagram-file'
+import { shareFileSession, type OpenLocalFile } from './file-session'
+import { StorageActions } from './StorageActions'
+import { FileIndicator } from './FileIndicator'
 
 const nodeTypes = { cell: Cell }
 
@@ -23,21 +28,24 @@ interface WorkspaceProps {
   registerBeforeLeave: (callback: () => void) => () => void
   requestIdentity: () => Promise<boolean>
   editIdentity: () => void
+  openLocal: OpenLocalFile
+  reload: () => Promise<void>
 }
 
 export function App(props: WorkspaceProps) {
   return <ReactFlowProvider><Workspace {...props} /></ReactFlowProvider>
 }
 
-function Workspace({ session, header, switching, navigate: navigateToDiagram, registerBeforeLeave, requestIdentity, editIdentity }: WorkspaceProps) {
+function Workspace({ session, header, switching, navigate: navigateToDiagram, registerBeforeLeave, requestIdentity, editIdentity, openLocal, reload }: WorkspaceProps) {
   const identity = useSyncExternalStore(subscribeIdentity, browserIdentity)
   const actionEpoch = useRef(0)
   useEffect(() => () => { actionEpoch.current++ }, [])
   const withIdentity = useCallback((operation: () => void) => {
+    if (!session.canEdit) return
     if (session.identity.name) { operation(); return }
     const epoch = actionEpoch.current
     void requestIdentity().then(accepted => {
-      if (accepted && epoch === actionEpoch.current && session.identity.name) operation()
+      if (accepted && epoch === actionEpoch.current && session.identity.name && session.canEdit) operation()
     })
   }, [session, requestIdentity])
   const [, redraw] = useState(0)
@@ -49,6 +57,12 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const [notice, setNotice] = useState<string | null>(null)
   const [help, setHelp] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [filesOpen, setFilesOpen] = useState(false)
+  const [storageMode, setStorageMode] = useState<'save' | 'delete' | null>(null)
+  const [sharing, setSharing] = useState(false)
+  const [shareLink, setShareLink] = useState('')
+  const shareDialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => { if (shareLink) shareDialog.current?.showModal(); else shareDialog.current?.close() }, [shareLink])
   const actionsContainer = useRef<HTMLDivElement>(null)
   const [heights, setHeights] = useState(new Map<string, number>())
   const [positions, setPositions] = useState(new Map<string, { x: number; y: number }>())
@@ -70,7 +84,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const participants = session.participants()
   const presence = summarizeParticipants(participants, identity)
   const avatars = presence.named.filter(person => person.id !== identity.id)
-  const connected = navigator.onLine && session.provider.configuration.websocketProvider.status === 'connected'
+  const connected = !!session.connected
   const others = participants.filter(person => person.name && person.clientId !== session.doc.clientID)
   const documentTitle = diagramTitle(tree.nodes.get(ROOT_ID)?.text ?? '', session.tracker?.trackerKey)
   const textAlign = readTextAlign(session.doc)
@@ -90,18 +104,14 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     const refresh = () => redraw(value => value + 1)
     const unsubscribeHistory = session.history.subscribe(refresh)
     session.doc.on('update', changed)
-    session.provider.on('status', refresh)
-    session.provider.on('synced', refresh)
-    session.provider.awareness?.on('change', refresh)
+    const unsubscribeSession = session.subscribe(refresh)
     window.addEventListener('online', refresh)
     window.addEventListener('offline', refresh)
     changed()
     return () => {
       unsubscribeHistory()
       session.doc.off('update', changed)
-      session.provider.off('status', refresh)
-      session.provider.off('synced', refresh)
-      session.provider.awareness?.off('change', refresh)
+      unsubscribeSession()
       window.removeEventListener('online', refresh)
       window.removeEventListener('offline', refresh)
     }
@@ -114,7 +124,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (previousId !== (next?.id ?? null)) session.setPresence('editingNode', next?.id ?? null)
   }, [session])
   const focusCanvas = useCallback(() => {
-    if (!editRef.current) canvas.current?.focus({ preventScroll: true })
+    // Закрытие одного диалога не должно отбирать фокус у следующего.
+    if (!editRef.current && !document.querySelector('dialog[open]')) canvas.current?.focus({ preventScroll: true })
   }, [])
   useEffect(() => {
     session.setPresence('activeNode', active)
@@ -210,6 +221,23 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     setActionsOpen(false)
     setHelp(false)
   }), [registerBeforeLeave, commit, updateDrag])
+  useEffect(() => {
+    const prepare = () => { commit(); updateDrag(null); setActionsOpen(false) }
+    session.prepare = prepare
+    return () => { if (session.prepare === prepare) session.prepare = undefined }
+  }, [session, commit, updateDrag])
+  const saveFile = useCallback(() => {
+    commit()
+    if (session.file) void session.file.retry().catch(error => setNotice(String(error)))
+    else { try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } }
+  }, [commit, session, documentTitle])
+  useEffect(() => {
+    const save = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS' && !event.altKey) { event.preventDefault(); saveFile() }
+    }
+    window.addEventListener('keydown', save, true)
+    return () => window.removeEventListener('keydown', save, true)
+  }, [saveFile])
   const startEdit = useCallback((id: string, isNew = false) => withIdentity(() => {
     const lockedBy = session.participants().find(person => person.clientId !== session.doc.clientID && person.editingNode === id)
     if (lockedBy) { setNotice(`${lockedBy.name} сейчас редактирует эту клеточку.`); return }
@@ -277,10 +305,12 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
   }, [cancel, commit, create, focusCanvas])
   const onDraft = useCallback((text: string) => {
+    if (!session.canEdit) return
     if (editRef.current) updateEdit({ ...editRef.current, draft: normalizeText(text) })
-  }, [updateEdit])
+  }, [updateEdit, session])
 
   const startDrag = (_event: unknown, node: FlowCell) => {
+    if (!session.canEdit) return
     if (node.id !== active) return
     commit()
     const snapshot = beginSiblingDrag(projectTree(session.doc), node.id, positions, heights)
@@ -322,7 +352,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     id: node.id, type: 'cell',
     position: drag?.snapshot.id === node.id ? drag.position : positions.get(node.id) ?? { x: 0, y: 0 },
     style: { opacity: positions.has(node.id) ? 1 : 0, pointerEvents: positions.has(node.id) ? 'auto' : 'none' },
-    draggable: node.id === active && positions.has(node.id) && node.id !== ROOT_ID && edit?.id !== node.id && drag?.phase !== 'settling'
+    draggable: session.canEdit && node.id === active && positions.has(node.id) && node.id !== ROOT_ID && edit?.id !== node.id && drag?.phase !== 'settling'
       && (tree.children.get(node.parentId ?? '')?.length ?? 0) > 1,
     zIndex: drag?.snapshot.id === node.id ? 1001 : 0,
     measured: { width: NODE_WIDTH, height: heights.get(node.id) ?? NODE_MIN_HEIGHT },
@@ -392,12 +422,26 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
 
   return <>
     {createPortal(<>
-      <DiagramPicker id={session.id} title={documentTitle} tracker={session.tracker} connected={connected} navigate={navigateToDiagram} requestIdentity={requestIdentity} />
-      <div className="connection" data-testid="connection" data-connected={String(connected)}
-        title={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}
-        aria-label={connected ? 'В сети' : 'Offline · изменения сохраняются локально'}>
+      <DiagramPicker id={session.id} title={documentTitle} tracker={session.tracker} connected={session.source === 'system' ? connected : navigator.onLine}
+        triggerContent={session.source !== 'system' ? <FileIndicator session={session} /> : undefined}
+        temporary={session.source !== 'system' || session.deleted} navigate={navigateToDiagram} requestIdentity={requestIdentity}
+        prepare={commit} returnFocus={focusCanvas} openFile={() => setFilesOpen(true)} actions={close => <>
+          <button disabled={!ready || switching} onClick={() => { close(); if (session.file) { saveFile(); focusCanvas() } else setStorageMode('save') }}>{session.file ? 'Сохранить файл' : 'Сохранить в файл…'}</button>
+          {session.source === 'system' && <button className="delete-button" disabled={session.id === 'main' || !connected || !session.canEdit || switching}
+            onClick={() => { close(); setStorageMode('delete') }}>Удалить схему…</button>}
+          {session.file && <>
+            <button disabled={sharing || !navigator.onLine} onClick={() => {
+              close(); commit(); focusCanvas(); setSharing(true)
+              void shareFileSession(session).then(setShareLink).catch(error => { setNotice(String(error)); focusCanvas() }).finally(() => setSharing(false))
+            }}>{sharing ? 'Подключаем…' : 'Поделиться сессией'}</button>
+            <button onClick={() => { close(); commit(); try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } focusCanvas() }}>Скачать копию</button>
+          </>}
+        </>} />
+      {!session.waitingForOwner && (session.source !== 'file' || session.provider) && <div className="connection" data-testid="connection" data-connected={String(connected)}
+        title={connected ? 'В сети' : 'Offline'}
+        aria-label={connected ? 'В сети' : 'Offline'}>
         <i className={connected ? 'online' : 'offline'} /><span>{connected ? 'В сети' : 'Offline'}</span>
-      </div>
+      </div>}
       <div className="avatars" aria-label="Участники">
         <button className={identity.name ? 'identity-trigger' : 'introduce-button'} disabled={switching}
           aria-label={identity.name ? 'Изменить имя' : 'Представиться'} title={identity.name ? 'Изменить имя' : 'Представиться'} aria-haspopup="dialog" onClick={editIdentity}>
@@ -415,9 +459,9 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       {presence.named.length > 3 && <span className="participant-count" title={avatars.slice(identity.name ? 2 : 3).map(person => person.name).join(', ')}>+{presence.named.length - 3}</span>}
       {presence.guests > 0 && <span className="guest-count" title="Непредставившиеся посетители этой схемы">Гостей: {presence.guests}</span>}
       <button className="icon-button" aria-label="Отменить действие" title="Отменить действие (Ctrl/⌘+Z)"
-        disabled={switching || !ready || !!edit || !!drag || !session.history.canUndo} onClick={() => applyHistory('undo')}>↶</button>
+        disabled={switching || !ready || !session.canEdit || !!edit || !!drag || !session.history.canUndo} onClick={() => applyHistory('undo')}>↶</button>
       <button className="icon-button" aria-label="Повторить действие" title="Повторить действие (Ctrl/⌘+Shift+Z, Ctrl+Y)"
-        disabled={switching || !ready || !!edit || !!drag || !session.history.canRedo} onClick={() => applyHistory('redo')}>↷</button>
+        disabled={switching || !ready || !session.canEdit || !!edit || !!drag || !session.history.canRedo} onClick={() => applyHistory('redo')}>↷</button>
       <button className="icon-button" aria-label="Вся схема" title="Показать всю схему" disabled={!layoutReady}
         onClick={() => { void flow.fitView({ padding: 0.2, maxZoom: 1 }); focusCanvas() }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" /></svg>
@@ -433,15 +477,15 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           aria-expanded={actionsOpen} aria-controls="cell-actions"
           onClick={() => { setActionsOpen(value => !value); setHelp(false) }}>⋯</button>
         {actionsOpen && <div id="cell-actions" className="actions-panel" role="group" aria-label="Действия с выбранной клеточкой">
-          <button disabled={!ready} onClick={() => { setActionsOpen(false); create('child') }}>Дочерняя <kbd>Tab</kbd></button>
-          <button disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); create('sibling') }}>Рядом <kbd>Enter</kbd></button>
-          <button disabled={!ready} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
-          <button disabled={!ready} onClick={() => { setActionsOpen(false); commit(); change(() => session.commands.toggleStatus(active)) }}>Статус <kbd>Space</kbd></button>
-          <button className="delete-button" aria-label="Удалить" disabled={!ready || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
+          <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); create('child') }}>Дочерняя <kbd>Tab</kbd></button>
+          <button disabled={!ready || !session.canEdit || active === ROOT_ID} onClick={() => { setActionsOpen(false); create('sibling') }}>Рядом <kbd>Enter</kbd></button>
+          <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
+          <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); commit(); change(() => session.commands.toggleStatus(active)) }}>Статус <kbd>Space</kbd></button>
+          <button className="delete-button" aria-label="Удалить" disabled={!ready || !session.canEdit || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
           <fieldset className="diagram-settings" disabled={!ready || switching || !!drag}>
             <legend>Схема</legend>
             {/* Фокус остаётся внутри меню до штатного click по связанному checkbox. */}
-            <label tabIndex={-1}><input type="checkbox" checked={textAlign === 'center'} onChange={event => {
+            <label tabIndex={-1}><input type="checkbox" disabled={!session.canEdit} checked={textAlign === 'center'} onChange={event => {
               const next = event.target.checked ? 'center' : 'left'
               setActionsOpen(false)
               commit()
@@ -451,6 +495,17 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         </div>}
       </div>
     </>, header)}
+    <FileActions open={filesOpen} close={() => setFilesOpen(false)} returnFocus={focusCanvas} session={session} title={documentTitle}
+      navigate={navigateToDiagram} openLocal={openLocal} requestIdentity={requestIdentity} />
+    <StorageActions mode={storageMode} close={() => setStorageMode(null)} returnFocus={focusCanvas} session={session} title={documentTitle}
+      navigate={navigateToDiagram} openLocal={openLocal} requestIdentity={requestIdentity} />
+    <dialog ref={shareDialog} className="diagrams-dialog file-dialog" aria-label="Совместная файловая сессия" onClose={focusCanvas} onCancel={() => setShareLink('')}>
+      <h2>Совместная файловая сессия</h2>
+      <p>Передай ссылку ниже участникам. Адрес этой вкладки остаётся локальным. Держи её открытой: только она сохраняет изменения в твой файл.</p>
+      <input aria-label="Ссылка файловой сессии" readOnly value={shareLink} onFocus={event => event.target.select()} />
+      <button onClick={() => setShareLink('')}>Готово</button>
+      <button onClick={() => { session.roomClose?.(); setShareLink('') }}>Завершить сессию</button>
+    </dialog>
     <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown} inert={switching}
       aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-diagram-id={session.id} data-ready={String(ready && layoutReady && !switching)}>
       {ready ? <ReactFlow<FlowCell> nodes={nodes} edges={edges} nodeTypes={nodeTypes}
@@ -466,9 +521,19 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#d9d5c9" />
         {dropAnchor && <ViewportPortal><div className="drop-indicator" data-testid="drop-indicator"
           style={{ transform: `translate(${dropAnchor.x - 8}px, ${dropY}px)`, width: NODE_WIDTH + 16 }} /></ViewportPortal>}
-      </ReactFlow> : <div className="loading">{connected ? 'Открываем документ…' : 'Для первого открытия документа нужно соединение с сервером.'}</div>}
+      </ReactFlow> : <div className="loading" role="status">{session.waitingForOwner ? 'Ожидаем владельца файла. Схема откроется автоматически, когда он откроет файл.' : connected ? 'Открываем документ…' : 'Для первого открытия документа нужно соединение с сервером.'}</div>}
       {notice && <div className="notice" role="alert"><span>{notice}</span>
         <button aria-label="Закрыть сообщение" onClick={() => { setNotice(null); focusCanvas() }}>×</button>
+      </div>}
+      {(session.message || session.file?.error) && <div className="notice file-notice" role="alert">
+        <span>{session.file?.error || session.message}</span>
+        <button onClick={() => { try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } }}>Скачать копию</button>
+        {session.file?.error && <button onClick={saveFile}>Повторить сохранение</button>}
+        {(session.outdated || session.source === 'guest' && !session.canEdit) && <button onClick={() => { void reload() }}>Открыть актуальную схему</button>}
+      </div>}
+      {session.fileNotice && !session.message && !session.file?.error && <div className="notice file-notice file-info" role="status">
+        <span>{session.fileNotice}</span>
+        <button aria-label="Закрыть сообщение" onClick={() => { session.fileNotice = ''; session.emit(); focusCanvas() }}>×</button>
       </div>}
       {help && <aside className="help-panel" aria-label="Клавиатурная справка">
         <h2>Клавиатура и мышь</h2><p>Щёлкни клеточку или перейди к схеме клавишей Tab.</p>
@@ -481,6 +546,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Shift + Enter', 'В редакторе: перенос строки'],
           ['Esc на схеме', 'Вернуться к панели действий'],
           ['Ctrl + Z', 'Отменить действие'], ['Ctrl + Shift + Z / Y', 'Повторить действие'],
+          ['Ctrl + S', 'Сохранить схему в файл'],
         ].map(([key, label]) => <div className="help-row" key={key}><span>{label}</span><kbd>{key}</kbd></div>)}
         <p>Мышью: клик активирует клеточку. Тяни активную клеточку, чтобы изменить порядок среди детей одного родителя; неактивную — чтобы переместить холст без смены выделения. Esc отменяет перестановку.</p>
         <p>На macOS вместо Ctrl можно использовать ⌘. Текст клеточки сохраняется целиком.</p>

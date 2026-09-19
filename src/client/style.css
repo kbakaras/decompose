@@ -12,8 +12,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 /* Базовую линию бренда задаёт текст, а не нижний край изображения. */
 .brand { position: relative; display: flex; align-items: center; align-self: baseline; height: 100%; padding-left: 34px; flex-shrink: 0; color: #263c30; text-decoration: none; font-size: 17px; font-weight: 680; letter-spacing: -.5px; }
 .brand-mark { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; object-fit: contain; }
-.document-title { align-self: baseline; flex: 1; min-width: 0; margin: 0 12px; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.diagram-trigger { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: 0; border-radius: 5px; padding: 6px; text-align: left; background: transparent; }
+.document-title { align-self: baseline; flex: 1; min-width: 0; margin: 0 12px; font-size: 13px; line-height: 18px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.diagram-trigger, .file-indicator { display: flex; align-items: baseline; gap: 6px; width: fit-content; min-width: 0; max-width: 100%; border: 1px solid #b7bcae; border-radius: 4px; padding: 5px 6px; font: inherit; }
+.diagram-trigger { text-align: left; background: transparent; }
+.diagram-trigger:focus-visible { outline-offset: -2px; }
 .diagram-trigger:hover { background: #e8e9df; }.diagram-trigger span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diagrams-dialog { color: inherit; width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid #dddccf; border-radius: 10px; background: #fffefa; box-shadow: 0 15px 50px #37402725; }
 .diagrams-dialog::backdrop { background: #263c3040; }.diagrams-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.diagrams-heading h2 { margin: 0; font-size: 20px; font-weight: 500; }
@@ -53,6 +55,29 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .diagram-settings legend { padding: 0 4px; color: #727c6e; }.diagram-settings label { display: flex; align-items: center; gap: 8px; cursor: pointer; }.diagram-settings input { margin: 0; }
 kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding: 2px 5px; border-radius: 4px; color: #8b9185; font-weight: 400; white-space: nowrap; }
 .delete-button { color: #aa6953; }
+.file-trigger { padding: 0; border: 0; }
+.file-trigger:hover .file-indicator { border-color: #638da6; }
+.file-indicator { border-color: #9fb9c9; background: #e4eff5; color: #294e65; }
+.file-mode, .file-save-state, .file-menu-arrow { flex-shrink: 0; white-space: nowrap; }
+.file-mode { font-weight: inherit; }
+.file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-name, .file-save-state { border-left: 1px solid currentColor; padding-left: 6px; }
+.file-indicator[data-state="error"] { color: #8f3028; border-color: #ca8178; background: #fbe9e4; }
+.file-dialog fieldset { border: 0; padding: 0; }
+.file-dialog label { display: flex; gap: 8px; align-items: center; padding: 8px 0; }
+.file-dialog button { margin: 8px 6px 0 0; padding: 8px; }
+.file-dialog input[readonly] { width: 100%; padding: 8px; }
+.notice.file-notice { top: auto; bottom: 12px; max-width: min(720px, calc(100% - 24px)); flex-wrap: wrap; }
+.notice.file-notice button { font-size: 12px; padding: 6px; }
+.notice.file-info { border-color: #9fb9c9; background: #e4eff5; color: #294e65; flex-wrap: nowrap; }
+.notice.file-recovery { top: auto; bottom: 12px; z-index: 30; }
+.notice.file-recovery button { font-size: 13px; padding: 6px; }
+@media (max-width: 700px) {
+  .file-indicator .file-name, .file-indicator .file-save-state { display: none; }
+  .topbar .document-title-file { margin-inline: 0; }
+  .file-indicator { gap: 4px; padding-inline: 4px; }
+  .file-mode { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
 .canvas { position: relative; flex: 1; min-height: 0; outline: none; }.canvas:focus-visible { box-shadow: inset 0 0 0 1px #c7cdbb; }
 .react-flow__node-cell { border-radius: 9px; width: 280px; }
 .cell { --cell-accent: #a86b08; --cell-halo: #edac2733; position: relative; cursor: grab; width: 280px; min-height: 44px; background: #ffe3a1; border: 1px solid #e2b65b; border-radius: 9px; padding: 8px 10px 10px; box-shadow: 0 4px 12px #41472e08; transition: border-color .15s, box-shadow .15s; }
@@ -78,3 +103,7 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .loading { padding: 80px 32px; color: #8b9185; text-align: center; }
 @media (max-width: 700px) { .avatars .remote-avatar, .participant-count, .connection span { display: none; }.topbar { gap: 4px; padding: 0 8px; }.document-title { margin: 0 4px; align-self: center; }.brand { align-self: center; height: 28px; padding-left: 28px; }.brand-name { display: none; } }
 @media (max-width: 700px) { .introduce-label { display: none; }.introduce-icon { display: block; } }
+.scheme-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; padding: 10px; border: 1px solid #d8d3c7; border-radius: 8px; }
+.scheme-actions legend { padding: 0 5px; }
+.scheme-actions button { padding: 7px 10px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; font-size: 13px; }
+.scheme-actions .delete-button { color: #8f3028; background: transparent; }

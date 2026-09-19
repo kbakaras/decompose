@@ -8,7 +8,7 @@ async function newDiagram(page: Page, title: string) {
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
   await page.getByLabel('Новая схема', { exact: true }).fill(title)
   await page.getByRole('button', { name: 'Создать', exact: true }).click()
-  await expect(page).toHaveURL(/\?diagram=[0-9a-f-]{36}$/)
+  await expect(page).toHaveURL(/\/diagram\/[0-9a-f-]{36}$/)
   await ready(page)
   await expect(root(page)).toHaveAttribute('data-text', title)
   return page.url()
@@ -54,7 +54,7 @@ test('create, switch, share and rename diagrams without mixing data, presence or
     await expect(page.getByRole('link', { name: 'Название из корня', exact: true })).toBeVisible()
     await page.screenshot({ path: 'test-results/diagrams.png' })
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('button', { name: 'Схемы', exact: true })).toBeFocused()
+    await expect(page.locator('main')).toBeFocused()
     await page.goBack()
     await ready(page)
     await expect(root(page)).toHaveAttribute('data-text', 'Название из корня')
@@ -63,6 +63,44 @@ test('create, switch, share and rename diagrams without mixing data, presence or
     await expect(root(page)).toHaveAttribute('data-text', legacyTitle!)
     await expect(page.locator('[data-cell-id]')).toHaveCount(legacyCount)
   } finally { await context.close() }
+})
+
+test('closing the picker and file dialogs returns keyboard commands to the active cell', async ({ page }) => {
+  await page.goto('/')
+  await ready(page)
+  await newDiagram(page, 'Проверка фокуса')
+  await page.keyboard.press('Tab')
+  await page.getByRole('textbox').fill('Текущая клеточка')
+  await page.keyboard.press('Enter')
+  const cell = page.locator('[data-text="Текущая клеточка"]')
+  const trigger = page.getByRole('button', { name: 'Схемы', exact: true })
+  for (const action of ['escape', 'close', 'open', 'save', 'delete', 'download']) {
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    const catalog = page.getByRole('dialog', { name: 'Схемы', exact: true })
+    await expect(catalog).toBeVisible()
+    if (action === 'escape') await page.keyboard.press('Escape')
+    else if (action === 'close') await page.getByRole('button', { name: 'Закрыть список схем' }).click()
+    else {
+      const label = action === 'open' ? 'Открыть файл…' : action === 'delete' ? 'Удалить схему…' : 'Сохранить в файл…'
+      await catalog.getByRole('button', { name: label, exact: true }).click()
+      await expect(page.locator('dialog[open]')).toHaveCount(1)
+      await expect(page.locator('dialog[open]')).toHaveJSProperty('open', true)
+      await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('dialog[open]'))).toBe(true)
+      if (action === 'download') {
+        const download = page.waitForEvent('download')
+        await page.getByRole('button', { name: 'Скачать копию', exact: true }).click()
+        await download
+      } else if (action === 'save') await page.keyboard.press('Escape')
+      else await page.getByRole('button', { name: 'Отмена', exact: true }).click()
+    }
+    await expect(page.locator('dialog[open]')).toHaveCount(0)
+    await expect(page.locator('main')).toBeFocused()
+    await expect(cell).toHaveAttribute('data-active', 'true')
+    await page.keyboard.press('F2')
+    await expect(page.getByRole('textbox', { name: 'Текст клеточки' })).toHaveValue('Текущая клеточка')
+    await page.keyboard.press('Escape')
+  }
 })
 
 test('offline diagram links and cached list stay isolated; branding and invalid links work', async ({ page, context }) => {
@@ -108,13 +146,13 @@ test('offline diagram links and cached list stay isolated; branding and invalid 
         resolve()
       }
     })
-  }, new URL(a).searchParams.get('diagram'))
+  }, new URL(a).pathname.split('/').at(-1))
   await page.keyboard.press('Enter')
   // Немедленный reload может прервать последнюю IndexedDB-транзакцию.
   await page.reload()
   await ready(page)
   await expect(root(page)).toHaveAttribute('data-text', 'Offline A изменена')
-  expect(await page.evaluate(id => sessionStorage.getItem(`decompose:pending:${id}`), new URL(a).searchParams.get('diagram'))).toBeNull()
+  expect(await page.evaluate(id => sessionStorage.getItem(`decompose:pending:${id}`), new URL(a).pathname.split('/').at(-1))).toBeNull()
   // Переход через UI дожидается IndexedDB перед уходом со страницы.
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
   await page.getByRole('link', { name: 'Offline B', exact: true }).click()
@@ -134,7 +172,7 @@ test('offline diagram links and cached list stay isolated; branding and invalid 
   await page.goto(a)
   await ready(page)
   await expect(page.getByTestId('connection')).toHaveAttribute('data-connected', 'true')
-  await expect.poll(async () => (await (await page.request.get(`/api/diagrams/${new URL(a).searchParams.get('diagram')}`)).json()).title).toBe('Offline A изменена')
+  await expect.poll(async () => (await (await page.request.get(`/api/diagrams/${new URL(a).pathname.split('/').at(-1)}`)).json()).title).toBe('Offline A изменена')
   await page.goto('/?diagram=00000000-0000-4000-8000-000000000000')
   await expect(page.getByRole('alert')).toContainText('Схема не найдена')
   await expect(page.locator('[data-cell-id]')).toHaveCount(0)

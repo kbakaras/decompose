@@ -6,7 +6,7 @@ const profile = (page: Page) => page.getByRole('dialog', { name: 'Предста
 async function create(page: Page, title = 'Профиль') {
   const response = await page.request.post('/api/diagrams', { data: { title } })
   expect(response.status()).toBe(201)
-  return `/?diagram=${(await response.json()).id}`
+  return `/diagram/${(await response.json()).id}`
 }
 async function ready(page: Page) {
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
@@ -81,7 +81,7 @@ test('profile survives reload, switching and offline; rename keeps identity, con
   await page.getByRole('button', { name: 'Отменить действие', exact: true }).click()
   await expect(root(page)).toHaveAttribute('data-status', 'open')
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.locator(`.diagrams-list a[href=".${b}"]`).click()
+  await page.locator(`.diagrams-list a[href="${b.slice(1)}"]`).click()
   await ready(page)
   await page.reload()
   await ready(page)

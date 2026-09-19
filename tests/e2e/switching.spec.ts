@@ -11,7 +11,7 @@ async function ready(page: Page, id: string) {
 }
 async function select(page: Page, id: string) {
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.locator(`.diagrams-list a[href="./?diagram=${id}"]`).click()
+  await page.locator(`.diagrams-list a[href="diagram/${id}"]`).click()
 }
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 
@@ -195,7 +195,7 @@ test('late and failed loads do not replace the last selected diagram', async ({ 
   await select(page, b)
   await expect(page.getByRole('alert')).toContainText('Сервер не смог открыть схему')
   await ready(page, c)
-  await expect(page).toHaveURL(new RegExp(`diagram=${c}$`))
+  await expect(page).toHaveURL(new RegExp(`diagram/${c}$`))
   await expect(root(page)).toHaveAttribute('data-text', 'Переход C')
   await page.getByRole('button', { name: 'Закрыть сообщение' }).click()
   await select(page, a)

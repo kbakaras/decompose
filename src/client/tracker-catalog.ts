@@ -1,5 +1,6 @@
 import { isTrackerSummary, trackerSearch, type TrackerSummary } from '../shared/tracker'
 import { appUrl } from './app-url'
+import { clearDeletedContent, knownDeletion, rememberDeletion } from './deleted-diagrams'
 
 const catalogKey = 'decompose:tracker:v1'
 const memory = new Map<string, TrackerSummary>()
@@ -9,12 +10,13 @@ export function readTrackerCatalog(): TrackerSummary[] {
     const saved: unknown = JSON.parse(localStorage.getItem(catalogKey) ?? '[]')
     if (Array.isArray(saved)) for (const item of saved) if (isTrackerSummary(item)) memory.set(item.trackerKey, item)
   } catch { /* Необязательный кеш может быть недоступен. */ }
+  for (const [key, item] of memory) if (knownDeletion(item.id)) memory.delete(key)
   return [...memory.values()]
 }
 
 export function rememberTrackers(items: TrackerSummary[]) {
   readTrackerCatalog()
-  for (const item of items) memory.set(item.trackerKey, item)
+  for (const item of items) if (!knownDeletion(item.id)) memory.set(item.trackerKey, item)
   try { localStorage.setItem(catalogKey, JSON.stringify([...memory.values()])) }
   catch { /* В этой вкладке остаётся кеш в памяти. */ }
 }
@@ -26,8 +28,11 @@ export function cachedTrackerSearch(query: string): TrackerSummary[] {
 }
 
 export class TrackerCreationCancelled extends Error {}
+export class TrackerDeleted extends Error {
+  constructor(readonly id: string) { super('Дерево задачи удалено.') }
+}
 
-export async function resolveTracker(key: string, signal: AbortSignal, requestIdentity: () => Promise<boolean>): Promise<TrackerSummary> {
+export async function resolveTracker(key: string, signal: AbortSignal, requestIdentity: () => Promise<boolean>, recreateDeletedId?: string): Promise<TrackerSummary> {
   const cached = readTrackerCatalog().find(item => item.trackerKey === key)
   const offline = () => {
     if (cached) return cached
@@ -45,11 +50,16 @@ export async function resolveTracker(key: string, signal: AbortSignal, requestId
     throw error
   }
   signal.throwIfAborted()
-  if (response.status === 404) {
+  if (response.status === 410) {
+    const deleted = await response.json()
+    rememberDeletion(deleted); void clearDeletedContent(deleted).catch(console.error)
+    if (recreateDeletedId !== deleted.id) throw new TrackerDeleted(deleted.id)
+  }
+  if (response.status === 404 || response.status === 410) {
     if (!await requestIdentity()) throw new TrackerCreationCancelled()
     signal.throwIfAborted()
     response = await fetch(appUrl(`api/tracker/${encodeURIComponent(key)}`), {
-      method: 'POST', signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recreateDeletedId }), signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
     }).catch(() => {
       throw new Error('Не удалось завершить создание. Повтори открытие ссылки: если схема уже сохранена, откроется она же.')
     })

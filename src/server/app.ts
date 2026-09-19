@@ -12,10 +12,15 @@ import { diagramTitle, normalizeTitle, isDiagramId, type DiagramSummary } from '
 import { ImportError, IMPORT_JSON_LIMIT } from '../shared/diagram-import'
 import { normalizeTrackerKey } from '../shared/tracker'
 import { relativeAppRoot, setHtmlBase } from '../shared/app-base'
+import { Replacements } from './replacement'
+import { FileRooms } from './file-rooms'
+import { DIAGRAM_FILE_LIMIT } from '../shared/diagram-file'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
   mkdirSync(options.dataDir, { recursive: true })
   const storage = new TrackerStorage(resolve(options.dataDir, 'decompose.sqlite'))
+  const fileRooms = new FileRooms(undefined, { get: id => storage.fileSessionHash(id), set: (id, hash) => storage.registerFileSession(id, hash) })
+  let replacements: Replacements
   const transport = new Server({
     quiet: true,
     stopOnSignals: false,
@@ -24,7 +29,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     debounce: 100,
     maxDebounce: 500,
     async onAuthenticate({ documentName }) {
-      if (!isDiagramId(documentName) || !storage.db?.prepare('SELECT 1 FROM documents WHERE name = ?').get(documentName)) {
+      if (!storage.accepts(documentName) || replacements.locked(documentName)) {
         throw new Error('Неизвестный документ')
       }
       return {}
@@ -36,6 +41,12 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
         return Promise.reject()
       }
     },
+    async beforeSync({ documentName, connection }) {
+      connection.readOnly = !storage.accepts(documentName) || !replacements.canWrite(documentName, connection)
+    },
+    async connected({ documentName, connection }) { replacements.joined(documentName, connection) },
+    async onStateless(payload) { replacements.acknowledge(payload) },
+    async onDisconnect({ documentName }) { replacements.disconnected(documentName) },
     async afterLoadDocument({ document }) {
       const version = getStructures(document).meta.get('schemaVersion')
       if (version !== undefined && version !== 1 && version !== SCHEMA_VERSION) {
@@ -52,6 +63,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     },
   })
   const collaboration = transport.hocuspocus
+  replacements = new Replacements(storage, collaboration)
   const app = express()
   app.disable('x-powered-by')
   app.get('/healthz', (_request, response) => response.json({ status: 'ok' }))
@@ -59,7 +71,10 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     response.setHeader('Cache-Control', 'no-store')
     next()
   })
-  app.post('/api/diagrams/import', express.json({ limit: IMPORT_JSON_LIMIT }), (request, response) => {
+  app.post('/api/diagrams/import', express.json({ limit: DIAGRAM_FILE_LIMIT }), (request, response) => {
+    if (request.body?.format === undefined && Buffer.byteLength(JSON.stringify(request.body)) > IMPORT_JSON_LIMIT) {
+      response.status(413).json({ error: 'Превышен допустимый размер запроса.' }); return
+    }
     const doc = createImportedDocument(request.body)
     const id = createUuid()
     try {
@@ -68,9 +83,57 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
       response.status(201).json({ id, title } satisfies DiagramSummary)
     } finally { doc.destroy() }
   })
+  app.post('/api/diagrams/:id/replace', express.json({ limit: DIAGRAM_FILE_LIMIT + 1024 }), async (request, response) => {
+    response.json(await replacements.replace(request.params.id, request.body?.generation, request.body?.file))
+  })
+  const deletedResponse = (id: string, response: express.Response) => {
+    const deleted = storage.deleted(id)
+    if (!deleted) return false
+    response.status(410).json({ error: 'Схема удалена.', code: 'deleted', ...deleted })
+    return true
+  }
+  app.get('/api/diagrams/:id/generation', (request, response) => {
+    const id = request.params.id
+    if (deletedResponse(id, response)) return
+    if (!isDiagramId(id) || !storage.accepts(storage.currentName(id))) { response.status(404).json({ error: 'Схема не найдена' }); return }
+    response.json({ generation: storage.generation(id) })
+  })
+  app.post('/api/file-sessions', express.json({ limit: '10mb' }), (request, response) => {
+    try {
+      const result = fileRooms.create(request.body?.state, request.body?.id, request.headers.authorization)
+      response.status(result.status).json(result.body)
+    }
+    catch { response.status(400).json({ error: 'Не удалось открыть совместную файловую сессию.' }) }
+  })
+  app.get('/api/file-sessions/:id/resume', (request, response) => {
+    const result = fileRooms.resume(request.params.id, request.headers.authorization)
+    response.set('Cache-Control', 'no-store').status(result.status).json(result.body)
+  })
+  app.get('/api/file-sessions/:id', (request, response) => {
+    const result = fileRooms.lookup(request.params.id)
+    response.status(result.status).json(result.body)
+  })
+  app.post('/api/file-sessions/:id/restore', express.json({ limit: '10mb' }), (request, response) => {
+    try {
+      const result = fileRooms.restore(request.params.id, request.headers.authorization, request.body?.state, request.body?.replace === true)
+      response.status(result.status).json(result.body)
+    } catch { response.status(400).json({ error: 'Не удалось восстановить файловую сессию.' }) }
+  })
   app.use('/api', express.json({ limit: '16kb' }))
+  app.delete('/api/diagrams/:id', async (request, response) => {
+    response.json(await replacements.remove(request.params.id, request.body?.generation, request.body?.operation))
+  })
+  app.post('/api/diagrams/:id/file-transfer', async (request, response) => {
+    response.json(await replacements.prepareTransfer(request.params.id, request.body?.generation, request.body?.operation))
+  })
+  app.post('/api/diagrams/:id/file-transfer/:operation/commit', (request, response) => {
+    response.json(replacements.commitTransfer(request.params.id, request.params.operation))
+  })
+  app.delete('/api/diagrams/:id/file-transfer/:operation', (request, response) => {
+    replacements.abortTransfer(request.params.id, request.params.operation); response.sendStatus(204)
+  })
   const summarize = (row: { name: string; data: Buffer }): DiagramSummary => {
-    const live = collaboration.documents.get(row.name)
+    const live = collaboration.documents.get(storage.currentName(row.name))
     const doc = live ?? new Y.Doc()
     try {
       if (!live) Y.applyUpdate(doc, row.data)
@@ -88,6 +151,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   })
   app.get('/api/diagrams/:id', (request, response) => {
     const id = request.params.id
+    if (deletedResponse(id, response)) return
     const row = isDiagramId(id)
       ? storage.db!.prepare('SELECT name, data FROM documents WHERE name = ?').get(id) as { name: string; data: Buffer } | undefined
       : undefined
@@ -122,26 +186,30 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     const key = normalizeTrackerKey(request.params.key)
     if (!key) { response.status(400).json({ error: 'Некорректный ключ задачи' }); return }
     const item = storage.findTracker(key)
+    if (!item) {
+      const deleted = storage.deletedTracker(key)
+      if (deleted) { response.status(410).json({ error: 'Дерево задачи удалено.', code: 'deleted', ...deleted }); return }
+    }
     if (!item) { response.status(404).json({ error: 'Дерево задачи ещё не создано' }); return }
     response.json(item)
   })
   app.post('/api/tracker/:key', (request, response) => {
     const key = normalizeTrackerKey(request.params.key)
     if (!key) { response.status(400).json({ error: 'Некорректный ключ задачи' }); return }
-    const { item, created } = storage.ensureTracker(key)
+    const { item, created } = storage.ensureTracker(key, request.body?.recreateDeletedId)
     response.status(created ? 201 : 200).json(item)
   })
   app.use('/api', (_request, response) => { response.status(404).json({ error: 'Неизвестный API-маршрут' }) })
   const apiError: ErrorRequestHandler = (error, _request, response, _next) => {
-    const status = error.status === 400 || error.status === 413 ? error.status : 500
+    const status = [400, 409, 413].includes(error.status) ? error.status : 500
     if (status === 500) console.error(error)
-    response.status(status).json({ error: error instanceof ImportError ? error.message
+    response.status(status).json({ error: error instanceof ImportError || status === 409 ? error.message
       : status === 413 ? 'Превышен допустимый размер запроса.'
         : status === 500 ? 'Не удалось выполнить запрос' : 'Некорректный запрос' })
   }
   app.use('/api', apiError)
   let shell: Promise<string> | undefined
-  app.get(['/', '/index.html', '/tracker/:key'], async (request, response) => {
+  app.get(['/', '/index.html', '/tracker/:key', '/diagram/:id', '/file/local/:id', '/file/session/:id'], async (request, response) => {
     shell ??= readFile(resolve(options.clientDir, 'index.html'), 'utf8').catch(error => { shell = undefined; throw error })
     response.type('html').set('Cache-Control', 'no-cache').send(setHtmlBase(await shell, relativeAppRoot(request.path)))
   })
@@ -149,12 +217,21 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   const server = transport.httpServer
   server.removeAllListeners('request')
   server.on('request', app)
+  const upgrade = server.listeners('upgrade')[0]
+  server.removeAllListeners('upgrade')
+  server.on('upgrade', (request, socket, head) => {
+    if (new URL(request.url ?? '/', 'http://localhost').pathname === '/file-collaboration') {
+      fileRooms.transport.httpServer.emit('upgrade', request, socket, head)
+    } else upgrade.call(server, request, socket, head)
+  })
 
   return {
     collaboration,
+    fileRooms,
     async listen(port = 3000, host = '127.0.0.1') {
       // Проверяем SQLite до приёма клиентов и создаём root единственным серверным writer.
-      const initial = await collaboration.openDirectConnection('main')
+      await storage.onConfigure()
+      const initial = await collaboration.openDirectConnection(storage.currentName('main'))
       await initial.disconnect()
       await new Promise<void>((resolveListen, reject) => {
         server.once('error', reject)
@@ -166,6 +243,8 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
       return (server.address() as AddressInfo).port
     },
     async close() {
+      replacements.close()
+      await fileRooms.close()
       await transport.destroy()
       storage.db?.close()
     },

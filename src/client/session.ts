@@ -1,159 +1,112 @@
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { HocuspocusProvider } from '@hocuspocus/provider'
-import { DocumentHistory, getStructures, ROOT_ID, SCHEMA_VERSION, TreeCommands } from '../domain'
+import { getStructures, ROOT_ID } from '../domain'
 import { isDiagramId } from '../shared/diagrams'
+import { documentName } from '../shared/document-generation'
 import { flushPersistence, protectPendingUpdates } from './local-persistence'
-import { browserIdentity, refreshIdentity, subscribeIdentity } from './identity'
-import { readParticipants, type Participant } from './presence'
+import { browserIdentity } from './identity'
 import { isTrackerSummary, type TrackerSummary } from '../shared/tracker'
 import { readTrackerCatalog, rememberTrackers } from './tracker-catalog'
 import { collaborationUrl } from './collaboration-url'
 import { appBaseUrl, appUrl } from './app-url'
+import { Session } from './session-base'
+import { clearDeletedContent, DiagramDeleted, knownDeletion, rememberDeletion, subscribeDeletion, type DeletedDiagram } from './deleted-diagrams'
+export { Session }
 export type { Participant } from './presence'
 
-export async function openSession(id = 'main', signal?: AbortSignal, tracker?: TrackerSummary) {
+function cachedGeneration(id: string) {
+  try { const value = Number(localStorage.getItem(`decompose:generation:${id}`) ?? 0); return Number.isSafeInteger(value) && value >= 0 ? value : 0 } catch { return 0 }
+}
+async function serverGeneration(id: string, signal?: AbortSignal) {
+  const response = await fetch(appUrl(`api/diagrams/${id}/generation`), { cache: 'no-store', signal: AbortSignal.any([AbortSignal.timeout(5000), ...(signal ? [signal] : [])]) })
+  if (response.status === 410) throw new DiagramDeleted(await response.json())
+  if (!response.ok) throw new Error(response.status === 404 ? 'Схема не найдена' : 'Сервер не смог открыть схему')
+  const { generation } = await response.json()
+  if (!Number.isSafeInteger(generation) || generation < 0) throw new Error('Некорректное поколение схемы')
+  return generation as number
+}
+
+export async function openSession(id = 'main', signal?: AbortSignal, tracker?: TrackerSummary, acceptLatest = false): Promise<Session> {
   if (!isDiagramId(id)) throw new Error('Некорректная ссылка на схему')
-  // Ошибка создания профиля не должна оставлять открытые ресурсы сессии.
-  browserIdentity()
-  tracker ??= readTrackerCatalog().find(item => item.id === id)
-  const doc = new Y.Doc()
-  const persistence = new IndexeddbPersistence(`decompose:${id}:v1`, doc)
-  await persistence.whenSynced
-  let unprotect: () => void
-  try {
-    signal?.throwIfAborted()
-    unprotect = await protectPendingUpdates(id, doc, persistence)
-  }
+  browserIdentity(); tracker ??= readTrackerCatalog().find(item => item.id === id)
+  const cached = cachedGeneration(id)
+  let latest = cached
+  let deletion = knownDeletion(id)
+  try { latest = await serverGeneration(id, signal) }
   catch (error) {
-    await persistence.destroy()
-    doc.destroy()
-    throw error
+    if (error instanceof DiagramDeleted) deletion = error.deletion
+    else if (signal?.aborted || !(error instanceof TypeError || error instanceof DOMException)) throw error
   }
+  const generation = acceptLatest ? latest : cached, name = documentName(id, generation)
+  const doc = new Y.Doc(), persistence = new IndexeddbPersistence(`decompose:${name}:v1`, doc)
+  await persistence.whenSynced
+  if (!acceptLatest && latest !== cached && !getStructures(doc).nodes.has(ROOT_ID)) {
+    await persistence.destroy(); doc.destroy(); return openSession(id, signal, tracker, true)
+  }
+  let unprotect: (() => void) | undefined, session: Session | undefined
   try {
-    signal?.throwIfAborted()
-    if (id !== 'main' && !getStructures(doc).nodes.has(ROOT_ID)) {
-      const response = await fetch(appUrl(`api/diagrams/${id}`), { cache: 'no-store', signal: AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]) })
-      if (response.status === 404) throw new Error('Схема не найдена')
-      if (!response.ok) throw new Error('Сервер не смог открыть схему')
+    signal?.throwIfAborted(); unprotect = await protectPendingUpdates(name, doc, persistence)
+    if (deletion && !getStructures(doc).nodes.has(ROOT_ID)) {
+      rememberDeletion(deletion); await persistence.destroy(); await clearDeletedContent(deletion)
+      throw new DiagramDeleted(deletion)
+    }
+    if (!deletion && id !== 'main' && !getStructures(doc).nodes.has(ROOT_ID)) {
+      const response = await fetch(appUrl(`api/diagrams/${id}`), { cache: 'no-store', signal })
+      if (!response.ok) throw new Error(response.status === 404 ? 'Схема не найдена' : 'Сервер не смог открыть схему')
       const summary: unknown = await response.json()
       if (isTrackerSummary(summary)) { tracker = summary; rememberTrackers([summary]) }
     }
     signal?.throwIfAborted()
-  } catch (error) {
-    unprotect()
-    await persistence.destroy()
-    doc.destroy()
-    if (signal?.aborted) throw error
-    if (error instanceof TypeError || !navigator.onLine || (error instanceof DOMException && error.name === 'TimeoutError')) {
-      throw new Error('Для первого открытия этой схемы нужно соединение с сервером')
+    session = new Session(id, doc, 'system', tracker); session.generation = generation
+    session.persist = () => flushPersistence(persistence)
+    let retirement: Promise<void> | undefined
+    let unsubscribeDeleted = () => {}
+    session.release = async () => { unsubscribeDeleted(); unprotect?.(); await (retirement ?? persistence.destroy()) }
+    try { localStorage.setItem(`decompose:generation:${id}`, String(generation)) } catch { /* Метаданные кеша необязательны. */ }
+    const current = session
+    current.retire = (value: DeletedDiagram) => {
+      if (current.deleted) return retirement ?? Promise.resolve()
+      current.prepare?.(); current.deleted = true; current.blocked = true
+      current.message = 'Схема удалена из системы. Снимок и несохранённые правки доступны только в этой вкладке: скачай копию перед уходом.'
+      current.provider?.disconnect(); unprotect?.(); unprotect = undefined
+      current.persist = async () => {}
+      rememberDeletion(value)
+      retirement = persistence.destroy().then(() => clearDeletedContent(value)).catch(error => {
+        current.message += ' Не удалось полностью очистить локальный кеш.'; console.error(error)
+      })
+      current.emit(); return retirement
     }
+    unsubscribeDeleted = subscribeDeletion(id, value => { void current.retire!(value) })
+    if (deletion) { await current.retire(deletion); return current }
+    const markOutdated = () => {
+      current.prepare?.(); current.outdated = true; current.blocked = true
+      current.message = 'Схема заменена. Старые изменения не отправлены. Скачай копию перед открытием актуальной схемы.'
+      current.provider?.disconnect(); current.emit()
+    }
+    if (latest !== generation) { markOutdated(); return current }
+    const provider = new HocuspocusProvider({
+      url: collaborationUrl(appBaseUrl), name, document: doc,
+      onAuthenticationFailed: () => {
+        void serverGeneration(id).then(value => {
+          if (value !== generation) markOutdated()
+          else { current.message = 'Схема временно заблокирована. Повтори открытие после завершения замены.'; current.emit() }
+        }).catch(error => { if (error instanceof DiagramDeleted) void current.retire!(error.deletion) })
+      },
+      onStateless: ({ payload }) => {
+        let message
+        try { message = JSON.parse(payload) } catch { return }
+        if (message.type === 'replace-prepare') {
+          current.prepare?.(); current.blocked = true; current.message = 'Операция со схемой: ожидаем синхронизацию вкладок…'; current.emit()
+          void current.synced().then(() => { if (current.blocked && !current.outdated) provider.sendStateless(JSON.stringify({ type: 'replace-ready', operation: message.operation })) }).catch(() => {})
+        } else if (message.type === 'replace-cancelled' && !current.deleted) { current.blocked = false; current.message = ''; current.emit() }
+        else if (message.type === 'replaced') { current.reloadRequested = true; current.emit() }
+        else if (message.type === 'deleted') void current.retire!(message)
+      },
+    })
+    current.attach(provider); return current
+  } catch (error) {
+    if (session) await session.destroy(); else { unprotect?.(); await persistence.destroy(); doc.destroy() }
     throw error
   }
-  const history = new DocumentHistory(doc)
-  const provider = new HocuspocusProvider({
-    url: collaborationUrl(appBaseUrl),
-    name: id,
-    document: doc,
-  })
-  let closed = false
-  let hidden = false
-  const selection: { activeNode: string | null; editingNode: string | null } = { activeNode: null, editingNode: null }
-  const publishIdentity = () => {
-    if (closed || hidden) return
-    const identity = browserIdentity()
-    provider.awareness?.setLocalState({
-      user: identity,
-      activeNode: identity.name ? selection.activeNode : null,
-      editingNode: identity.name ? selection.editingNode : null,
-    })
-  }
-  publishIdentity()
-  const unsubscribeIdentity = subscribeIdentity(publishIdentity)
-  const offline = () => provider.disconnect()
-  const online = () => { if (!closed && !hidden) void provider.connect() }
-  const pagehide = () => {
-    hidden = true
-    provider.awareness?.setLocalState(null)
-    provider.disconnect()
-  }
-  const pageshow = (event: PageTransitionEvent) => {
-    if (event.persisted && !closed) {
-      refreshIdentity()
-      hidden = false
-      publishIdentity()
-      if (navigator.onLine) online()
-    }
-  }
-  window.addEventListener('pagehide', pagehide, true)
-  window.addEventListener('pageshow', pageshow)
-  window.addEventListener('offline', offline)
-  window.addEventListener('online', online)
-  if (!navigator.onLine) offline()
-
-  const flush = () => flushPersistence(persistence)
-  const ready = () => {
-    const { meta, nodes } = getStructures(doc)
-    return meta.get('schemaVersion') === SCHEMA_VERSION && nodes.has(ROOT_ID)
-  }
-  let closing: Promise<void> | undefined
-
-  return {
-    id, tracker, doc, provider, persistence, history, flush,
-    get identity() { return browserIdentity() },
-    setPresence(field: 'activeNode' | 'editingNode', value: string | null) {
-      selection[field] = value
-      publishIdentity()
-    },
-    commands: new TreeCommands(doc),
-    ready,
-    async whenReady(signal: AbortSignal) {
-      signal.throwIfAborted()
-      if (ready()) return
-      await new Promise<void>((resolve, reject) => {
-        const finish = (error?: Error) => {
-          clearTimeout(timer)
-          doc.off('update', changed)
-          provider.off('authenticationFailed', denied)
-          signal.removeEventListener('abort', aborted)
-          if (error) reject(error); else resolve()
-        }
-        const changed = () => { if (ready()) finish() }
-        const denied = () => finish(new Error('Сервер отклонил открытие схемы'))
-        const aborted = () => finish(new DOMException('Переход отменён', 'AbortError'))
-        const timer = setTimeout(() => finish(new Error('Не удалось загрузить схему. Проверь соединение с сервером.')), 10000)
-        doc.on('update', changed)
-        provider.on('authenticationFailed', denied)
-        signal.addEventListener('abort', aborted, { once: true })
-        changed()
-      })
-    },
-    participants(): Participant[] {
-      if (!navigator.onLine || provider.configuration.websocketProvider.status !== 'connected') return []
-      return readParticipants(provider.awareness?.getStates().entries() ?? [])
-    },
-    destroy() {
-      if (closing) return closing
-      closed = true
-      unsubscribeIdentity()
-      window.removeEventListener('offline', offline)
-      window.removeEventListener('online', online)
-      window.removeEventListener('pagehide', pagehide, true)
-      window.removeEventListener('pageshow', pageshow)
-      // Снимаем presence и закрываем сокет до ожидания IndexedDB.
-      provider.destroy()
-      closing = (async () => {
-        try { await flush() }
-        finally {
-          unprotect()
-          history.destroy()
-          await persistence.destroy()
-          doc.destroy()
-        }
-      })()
-      return closing
-    },
-  }
 }
-
-export type Session = Awaited<ReturnType<typeof openSession>>

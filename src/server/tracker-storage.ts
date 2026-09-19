@@ -1,12 +1,20 @@
 import { createUuid } from '../shared/uuid'
 import * as Y from 'yjs'
 import { SQLite, schema, upsertQuery } from '@hocuspocus/extension-sqlite'
-import type { onStoreDocumentPayload } from '@hocuspocus/server'
+import type { onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server'
+import { documentName, parseDocumentName } from '../shared/document-generation'
 import { getStructures, initializeDocument, readText, ROOT_ID } from '../domain'
 import { normalizeTitle } from '../shared/diagrams'
 import { TRACKER_PAGE_SIZE, trackerSearch, type TrackerSummary, type TrackerPage } from '../shared/tracker'
 
 const trackerSchema = `
+CREATE TABLE IF NOT EXISTS file_sessions (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS document_generations (name TEXT PRIMARY KEY, generation INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS deleted_documents (
+  id TEXT PRIMARY KEY, generation INTEGER NOT NULL, tracker_key TEXT,
+  operation TEXT NOT NULL, deleted_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS deleted_tracker_key ON deleted_documents(tracker_key);
 CREATE TABLE IF NOT EXISTS tracker_diagrams (
   tracker_key TEXT PRIMARY KEY,
   document_id TEXT NOT NULL UNIQUE REFERENCES documents(name),
@@ -19,8 +27,75 @@ CREATE INDEX IF NOT EXISTS tracker_recent ON tracker_diagrams(updated_at DESC, t
 const summaryColumns = `document_id AS id, tracker_key AS trackerKey,
   CASE WHEN title = '' THEN tracker_key ELSE title END AS title, updated_at AS updatedAt`
 
+export interface DeletedDocument { id: string; generation: number; trackerKey: string | null; operation: string }
+export class StorageConflict extends Error { readonly status = 409 }
+
 export class TrackerStorage extends SQLite {
   constructor(database: string) { super({ database, schema: `${schema};${trackerSchema}` }) }
+
+  private configured?: Promise<void>
+  override onConfigure(): Promise<void> { return this.configured ??= super.onConfigure() }
+
+  fileSessionHash(id: string): string | undefined {
+    return (this.db!.prepare('SELECT secret_hash FROM file_sessions WHERE id = ?').get(id) as { secret_hash: string } | undefined)?.secret_hash
+  }
+
+  registerFileSession(id: string, hash: string) {
+    this.db!.prepare('INSERT INTO file_sessions (id, secret_hash) VALUES (?, ?)').run(id, hash)
+  }
+
+  generation(id: string): number {
+    return (this.db!.prepare('SELECT generation FROM document_generations WHERE name = ?').get(id) as { generation: number } | undefined)?.generation ?? 0
+  }
+
+  currentName(id: string): string { return documentName(id, this.generation(id)) }
+
+  deleted(id: string): DeletedDocument | undefined {
+    return this.db!.prepare('SELECT id, generation, tracker_key AS trackerKey, operation FROM deleted_documents WHERE id = ?').get(id) as DeletedDocument | undefined
+  }
+
+  deletedTracker(key: string): DeletedDocument | undefined {
+    return this.db!.prepare('SELECT id, generation, tracker_key AS trackerKey, operation FROM deleted_documents WHERE tracker_key = ? ORDER BY rowid DESC LIMIT 1').get(key) as DeletedDocument | undefined
+  }
+
+  remove(id: string, expected: number, operation: string): DeletedDocument {
+    if (id === 'main') throw new StorageConflict('Основную схему удалять нельзя.')
+    return this.db!.transaction(() => {
+      const previous = this.deleted(id)
+      if (previous && previous.operation === operation) return previous
+      if (!this.accepts(documentName(id, expected))) throw new StorageConflict('Схема удалена или изменилось её поколение.')
+      const generation = expected + 1, trackerKey = this.trackerForDocument(id)?.trackerKey ?? null
+      this.db!.prepare('INSERT INTO deleted_documents (id, generation, tracker_key, operation, deleted_at) VALUES (?, ?, ?, ?, ?)').run(id, generation, trackerKey, operation, Date.now())
+      this.db!.prepare('INSERT INTO document_generations (name, generation) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET generation = excluded.generation').run(id, generation)
+      this.db!.prepare('DELETE FROM tracker_diagrams WHERE document_id = ?').run(id)
+      this.db!.prepare('DELETE FROM documents WHERE name = ?').run(id)
+      return { id, generation, trackerKey, operation }
+    })()
+  }
+
+  accepts(name: string): boolean {
+    const parsed = parseDocumentName(name)
+    return !!parsed && !this.deleted(parsed.id) && this.generation(parsed.id) === parsed.generation
+      && !!this.db!.prepare('SELECT 1 FROM documents WHERE name = ?').get(parsed.id)
+  }
+
+  override async onLoadDocument({ documentName: name, document }: onLoadDocumentPayload) {
+    if (name === 'main' && this.generation('main') === 0 && !this.db!.prepare('SELECT 1 FROM documents WHERE name = ?').get('main')) return
+    if (!this.accepts(name)) throw new Error('Устаревшее поколение документа')
+    const { id } = parseDocumentName(name)!
+    const row = this.db!.prepare('SELECT data FROM documents WHERE name = ?').get(id) as { data: Buffer }
+    Y.applyUpdate(document, row.data)
+  }
+
+  replace(id: string, expected: number, doc: Y.Doc): number {
+    return this.db!.transaction(() => {
+      if (!this.accepts(documentName(id, expected))) throw new Error('Схема уже была заменена')
+      const next = expected + 1
+      this.db!.prepare('INSERT INTO document_generations (name, generation) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET generation = excluded.generation').run(id, next)
+      this.save(id, doc)
+      return next
+    })()
+  }
 
   findTracker(key: string): TrackerSummary | undefined {
     return this.db!.prepare(`SELECT ${summaryColumns} FROM tracker_diagrams WHERE tracker_key = ?`).get(key) as TrackerSummary | undefined
@@ -38,10 +113,12 @@ export class TrackerStorage extends SQLite {
     return { items: rows.slice(0, TRACKER_PAGE_SIZE), nextOffset: rows.length > TRACKER_PAGE_SIZE ? offset + TRACKER_PAGE_SIZE : null }
   }
 
-  ensureTracker(key: string): { item: TrackerSummary; created: boolean } {
+  ensureTracker(key: string, recreateDeletedId?: string): { item: TrackerSummary; created: boolean } {
     return this.db!.transaction(() => {
       const existing = this.findTracker(key)
       if (existing) return { item: existing, created: false }
+      const deleted = this.deletedTracker(key)
+      if (deleted && deleted.id !== recreateDeletedId) throw new StorageConflict('Дерево задачи удалено. Подтверди создание нового дерева.')
       const doc = new Y.Doc()
       const id = createUuid()
       const updatedAt = Date.now()
@@ -56,7 +133,14 @@ export class TrackerStorage extends SQLite {
     }).immediate()
   }
 
-  override async onStoreDocument({ documentName, document }: onStoreDocumentPayload) {
+  override async onStoreDocument({ documentName: name, document }: onStoreDocumentPayload) {
+    // Запоздалый debounce или unload старого поколения не перезаписывает новое.
+    const parsed = parseDocumentName(name)
+    if (!parsed || this.deleted(parsed.id) || this.generation(parsed.id) !== parsed.generation) return
+    this.save(parsed.id, document)
+  }
+
+  private save(documentName: string, document: Y.Doc) {
     const state = Buffer.from(Y.encodeStateAsUpdate(document))
     this.db!.transaction(() => {
       const previous = this.db!.prepare('SELECT data FROM documents WHERE name = ?').get(documentName) as { data: Buffer } | undefined

@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { App } from './App'
 import { openSession, type Session } from './session'
 import { useIdentityPrompt } from './IdentityPrompt'
-import { parseDiagramRoute } from '../shared/diagram-route'
-import { trackerUrl, type TrackerSummary } from '../shared/tracker'
-import { resolveTracker, TrackerCreationCancelled } from './tracker-catalog'
+import { canonicalDiagramUrl, parseDiagramRoute, type DiagramRoute } from '../shared/diagram-route'
+import type { TrackerSummary } from '../shared/tracker'
+import { resolveTracker, TrackerCreationCancelled, TrackerDeleted } from './tracker-catalog'
 import { appBaseUrl, appUrl } from './app-url'
+import { openFileSession, restoreFileSession, type OpenLocalFile } from './file-session'
+import { pickWritableFile, type WritableFile } from './diagram-file'
+import { FilePermission, type FileLease, type FileRecord } from './file-records'
 
 export function Application() {
   const { requestIdentity, editIdentity, cancelIdentity, dialog } = useIdentityPrompt()
@@ -15,6 +18,11 @@ export function Application() {
   const [showLoadingNotice, setShowLoadingNotice] = useState(false)
   const [error, setError] = useState('')
   const [cancelledTracker, setCancelledTracker] = useState<string | null>(null)
+  const [needsFile, setNeedsFile] = useState(false)
+  const [fileRecovery, setFileRecovery] = useState<{ href: string; record?: FileRecord } | null>(null)
+  const [deletedTracker, setDeletedTracker] = useState<{ href: string; id: string } | null>(null)
+  const [leave, setLeave] = useState<(() => void) | null>(null)
+  const leaveDialog = useRef<HTMLDialogElement>(null)
   const active = useRef<Session | null>(null)
   const activeUrl = useRef(location.href)
   const beforeLeave = useRef<(() => void) | null>(null)
@@ -33,7 +41,7 @@ export function Application() {
     return () => { if (beforeLeave.current === callback) beforeLeave.current = null }
   }, [])
 
-  const navigate = useCallback((href: string, mode: 'push' | 'pop' | 'initial' = 'push'): Promise<void> => {
+  const navigate = useCallback((href: string, mode: 'push' | 'pop' | 'initial' = 'push', force = false, local?: { handle: WritableFile; text: string; lease?: FileLease }, discard = false, recreateDeletedId?: string): Promise<void> => {
     const url = new URL(href, appBaseUrl)
     const currentGeneration = ++generation.current
     cancelIdentity()
@@ -51,23 +59,50 @@ export function Application() {
     }
     setError('')
     setCancelledTracker(null)
+    setDeletedTracker(null)
+    setFileRecovery(null)
     const task = queue.current.catch(() => {}).then(async () => {
-      if (currentGeneration !== generation.current) return
+      if (currentGeneration !== generation.current) { local?.lease?.release(); return }
       let candidate: Session | null = null
+      let route: DiagramRoute | undefined
       try {
-        const route = parseDiagramRoute(url, new URL(appBaseUrl))
+        route = local ? { kind: 'local-file', id: 'local' } : parseDiagramRoute(url, new URL(appBaseUrl))
+        if (!local) {
+          url.href = canonicalDiagramUrl(url, new URL(appBaseUrl)).href
+          if (mode !== 'push' && location.href !== url.href) history.replaceState(null, '', url)
+        }
         let tracker: TrackerSummary | undefined
         if (route.kind === 'tracker') {
-          tracker = await resolveTracker(route.key, controller.signal, requestIdentity)
+          tracker = await resolveTracker(route.key, controller.signal, requestIdentity, recreateDeletedId)
           controller.signal.throwIfAborted()
-          url.pathname = appUrl(trackerUrl(route.key)).pathname
-          url.search = ''
         }
-        const id = route.kind === 'diagram' ? route.id : tracker!.id
+        const id = route.kind !== 'tracker' ? route.id : tracker!.id
         let closing: Promise<void> | undefined
-        if (active.current?.id !== id) {
-          await active.current?.flush()
-          candidate = await openSession(id, controller.signal, tracker)
+        const sameSession = active.current?.id === id && (route.kind === 'file'
+          ? active.current.source === 'file' || active.current.source === 'guest'
+          : route.kind === 'local-file' ? active.current.source === 'file' : active.current.source === 'system')
+        if (!force && sameSession && active.current?.fileUrl) url.pathname = new URL(active.current.fileUrl).pathname
+        if (force || !sameSession) {
+          if (!discard) {
+            try { await active.current?.flush() }
+            catch (error) {
+              if (active.current?.file) {
+                setLeave(() => () => { setLeave(null); void navigate(href, mode, force, local, true) })
+                throw new Error('Не удалось сохранить файл. Можно остаться или уйти без сохранения.')
+              }
+              throw error
+            }
+          }
+          candidate = local ? await openFileSession(local.handle, local.text, controller.signal, local.lease)
+            : route.kind === 'file' || route.kind === 'local-file' ? await restoreFileSession(id, route.kind === 'file', controller.signal)
+              : await openSession(id, controller.signal, tracker, force)
+          if (!candidate) {
+            await active.current?.destroy(); active.current = null; setSession(null); setNeedsFile(true)
+            if (mode === 'push') history.pushState(null, '', url); else history.replaceState(null, '', url)
+            activeUrl.current = url.href
+            return
+          }
+          if (candidate.fileUrl) url.pathname = new URL(candidate.fileUrl).pathname
           // На первом открытии сохраняем возможность дождаться сервера в offline-оболочке.
           if (active.current) await candidate.whenReady(controller.signal)
           controller.signal.throwIfAborted()
@@ -76,6 +111,7 @@ export function Application() {
           closing = active.current?.destroy()
           active.current = candidate
           setSession(candidate)
+          setNeedsFile(false)
           candidate = null
         }
         // Переходы сериализованы: запоздавшая загрузка не перезаписывает последний запрос.
@@ -89,10 +125,20 @@ export function Application() {
         if (candidate) await candidate.destroy().catch(console.error)
         if (currentGeneration !== generation.current || controller.signal.aborted) return
         if (mode === 'pop' && active.current) history.replaceState(null, '', activeUrl.current)
-        if (failure instanceof TrackerCreationCancelled) {
+        if (failure instanceof TrackerDeleted) {
+          setDeletedTracker({ href, id: failure.id })
+        } else if (failure instanceof TrackerCreationCancelled) {
           if (!active.current) setCancelledTracker(href)
-        } else setError(failure instanceof Error ? failure.message : String(failure))
+        } else {
+          setError(failure instanceof Error ? failure.message : String(failure))
+          if (!local && (route?.kind === 'local-file' || route?.kind === 'file')) {
+            setFileRecovery({ href: url.href, record: failure instanceof FilePermission ? failure.record : undefined })
+            if (!active.current) setNeedsFile(true)
+          }
+        }
+        if (local) throw failure
       } finally {
+        if (local?.lease && active.current?.fileRecord !== local.lease.record) local.lease.release()
         if (currentGeneration === generation.current) {
           cancelNoticeTimer()
           setShowLoadingNotice(false)
@@ -103,6 +149,27 @@ export function Application() {
     queue.current = task
     return task
   }, [cancelNoticeTimer, cancelIdentity, requestIdentity])
+
+  useEffect(() => { if (leave) leaveDialog.current?.showModal(); else leaveDialog.current?.close() }, [leave])
+  useEffect(() => session?.subscribe(() => {
+    if (session.reloadRequested) { session.reloadRequested = false; void navigate(activeUrl.current, 'initial', true) }
+  }), [session, navigate])
+  const openLocal: OpenLocalFile = useCallback(async (handle, text, lease) => {
+    await navigate(appUrl('./').href, 'push', true, { handle, text, lease })
+  }, [navigate])
+
+  const continueFile = () => {
+    if (!fileRecovery) return
+    const { href, record } = fileRecovery
+    const epoch = generation.current
+    // requestPermission должен вызываться непосредственно из пользовательского жеста.
+    const permission = record ? record.handle.requestPermission({ mode: 'readwrite' }) : Promise.resolve('granted')
+    void permission.then(result => {
+      if (epoch !== generation.current) return
+      if (result !== 'granted') throw new Error('Нет разрешения на запись в файл.')
+      return navigate(href, 'initial', true)
+    }).catch(error => setError(String(error)))
+  }
 
   useEffect(() => {
     void navigate(location.href, 'initial')
@@ -132,15 +199,32 @@ export function Application() {
     </header>
     {session && header
       ? <App key={session.doc.clientID} session={session} header={header} switching={switching}
-        navigate={navigate} registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
-      : <div className="loading">{cancelledTracker ? <>
+        navigate={navigate} openLocal={openLocal} reload={() => navigate(activeUrl.current, 'initial', true)}
+        registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
+      : <div className="loading">{needsFile ? <>
+        <p>{fileRecovery?.record ? `Нужно разрешение на файл «${fileRecovery.record.handle.name}».` : 'Не удалось восстановить файл. Его содержимое хранится только на диске.'}</p>
+        <button onClick={() => { void pickWritableFile().then(({ handle, text }) => openLocal(handle, text)).catch(error => setError(String(error))) }}>Открыть файл на диске…</button>
+      </> : cancelledTracker ? <>
         <p>Дерево задачи ещё не создано.</p>
         <button onClick={() => { void navigate(cancelledTracker, 'initial') }}>Создать дерево задачи</button>{' '}
-      </> : !error && 'Открываем дерево·дел…'}
-        {(error || cancelledTracker) && <a href="./" onClick={event => { event.preventDefault(); void navigate('./') }}>Вернуться к основной схеме</a>}
+      </> : !error && !deletedTracker && 'Открываем дерево·дел…'}
+        {(error || cancelledTracker || deletedTracker) && <a href="./" onClick={event => { event.preventDefault(); void navigate('./') }}>Вернуться к основной схеме</a>}
       </div>}
+    {fileRecovery && <div className="notice file-recovery" role="status">
+      <button disabled={switching} onClick={continueFile}>{fileRecovery.record ? 'Продолжить работу с файлом' : 'Повторить открытие'}</button>
+    </div>}
     {switching && session && showLoadingNotice && <div className="navigation-notice" role="status">Открываем схему…</div>}
     {dialog}
+    {deletedTracker && <div className="notice navigation-error" role="alert">
+      <span>Дерево задачи удалено. Создать новое дерево с ключом в корне?</span>
+      <button disabled={!navigator.onLine} onClick={() => { void navigate(deletedTracker.href, 'push', false, undefined, false, deletedTracker.id) }}>Создать новое дерево</button>
+      <button onClick={() => setDeletedTracker(null)}>Закрыть</button>
+    </div>}
+    <dialog ref={leaveDialog} className="diagrams-dialog" aria-label="Несохранённый файл" onCancel={() => setLeave(null)}>
+      <p>Файл не сохранён. При уходе последние изменения могут быть потеряны.</p>
+      <button onClick={() => setLeave(null)}>Остаться</button>{' '}
+      <button onClick={() => leave?.()}>Уйти без сохранения</button>
+    </dialog>
     {error && <div className="notice navigation-error" role="alert"><span>Не удалось открыть схему: {error}</span>
       <button aria-label="Закрыть сообщение" onClick={() => setError('')}>×</button></div>}
   </div>

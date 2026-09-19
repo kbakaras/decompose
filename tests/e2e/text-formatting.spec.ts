@@ -69,7 +69,7 @@ test('Shift+Enter inserts native soft breaks; commit, cancel, history, paste and
     await expect.poll(() => root(page).evaluate(cell => cell.getBoundingClientRect().height)).toBeGreaterThan(initialHeight)
     await expect(root(page).locator('.cell-text')).toHaveCSS('white-space', 'pre-wrap')
     await expect(page.getByRole('button', { name: 'Схемы', exact: true })).toContainText('Первая Вторая')
-    const id = new URL(page.url()).searchParams.get('diagram')
+    const id = new URL(page.url()).pathname.split('/').at(-1)
     expect((await (await page.request.get(`/api/diagrams/${id}`)).json()).title).toBe('Первая Вторая')
     await page.getByRole('button', { name: 'Отменить действие', exact: true }).click()
     await expect(root(peer)).toHaveAttribute('data-text', 'ПерваяВторая')

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { diagramUrl, isDiagramId, type DiagramSummary } from '../shared/diagrams'
 import { readYedFile } from './yed-import'
 import { trackerLabel, type TrackerSummary } from '../shared/tracker'
 import { readTrackerCatalog, rememberTrackers } from './tracker-catalog'
 import { TrackerList } from './TrackerList'
 import { appUrl } from './app-url'
+import { knownDeletion } from './deleted-diagrams'
 
 const catalogKey = 'decompose:diagrams:v1'
 function readCatalog(): DiagramSummary[] {
@@ -12,18 +13,18 @@ function readCatalog(): DiagramSummary[] {
     const data: unknown = JSON.parse(localStorage.getItem(catalogKey) ?? '[]')
     const trackerIds = new Set(readTrackerCatalog().map(item => item.id))
     return Array.isArray(data) ? data.filter((item): item is DiagramSummary =>
-      item && isDiagramId(item.id) && typeof item.title === 'string' && !item.trackerKey && !trackerIds.has(item.id)) : []
+      item && isDiagramId(item.id) && !knownDeletion(item.id) && typeof item.title === 'string' && !item.trackerKey && !trackerIds.has(item.id)) : []
   } catch { return [] }
 }
 function saveCatalog(items: DiagramSummary[]) {
   try { localStorage.setItem(catalogKey, JSON.stringify(items)) } catch { /* Кеш списка необязателен. */ }
 }
 
-export function DiagramPicker({ id, title, tracker, connected, navigate, requestIdentity }: {
-  id: string; title: string; tracker?: TrackerSummary; connected: boolean; navigate: (url: string) => Promise<void>; requestIdentity: () => Promise<boolean>
+export function DiagramPicker({ id, title, tracker, connected, navigate, requestIdentity, temporary = false, actions, openFile, prepare, returnFocus, triggerContent }: {
+  id: string; title: string; tracker?: TrackerSummary; connected: boolean; navigate: (url: string) => Promise<void>; requestIdentity: () => Promise<boolean>; temporary?: boolean
+  actions: (close: () => void) => ReactNode; openFile: () => void; prepare: () => void; returnFocus: () => void; triggerContent?: ReactNode
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const trigger = useRef<HTMLButtonElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const importingRef = useRef(false)
   const mounted = useRef(true)
@@ -35,6 +36,14 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
   const [importing, setImporting] = useState(false)
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
+  const movingFocus = useRef(false)
+  const closeForAction = () => { movingFocus.current = true; dialog.current?.close() }
+  useEffect(() => {
+    const url = new URL(location.href)
+    if (url.searchParams.get('choose') !== '1') return
+    url.searchParams.delete('choose'); history.replaceState(null, '', url)
+    dialog.current?.showModal(); setOpen(true)
+  }, [])
 
   useEffect(() => {
     mounted.current = true
@@ -75,6 +84,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
   }
 
   useEffect(() => {
+    if (temporary || knownDeletion(id)) return
     if (tracker) {
       const cached = readTrackerCatalog().find(item => item.id === id) ?? tracker
       rememberTrackers([{ ...cached, title }])
@@ -85,7 +95,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
     if (existing) existing.title = title
     else cached.push({ id, title })
     saveCatalog(cached)
-  }, [id, title, tracker])
+  }, [id, title, tracker, temporary])
 
   useEffect(() => {
     if (!open || section !== 'diagrams') return
@@ -97,7 +107,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
       .then(async response => {
         if (!response.ok) throw new Error('Не удалось загрузить список')
         const remote: DiagramSummary[] = await response.json()
-        const list = remote.map(item => item.id === id ? { id, title } : item)
+        const list = remote.filter(item => !knownDeletion(item.id)).map(item => item.id === id ? { id, title } : item)
         if (controller.signal.aborted) return
         setItems(list)
         saveCatalog(list)
@@ -110,18 +120,22 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
   }, [open, section, id, title])
 
   return <>
-    <h1 className="document-title">
-      <button ref={trigger} className="diagram-trigger" aria-label="Схемы" title={`${trackerLabel(title, tracker?.trackerKey)} — выбрать схему`}
-        aria-haspopup="dialog" aria-expanded={open} onClick={() => { setSection(tracker ? 'tracker' : 'diagrams'); dialog.current?.showModal(); setOpen(true) }}>
-        <span>{trackerLabel(title, tracker?.trackerKey)}</span><span aria-hidden="true">▾</span>
+    <h1 className={`document-title${triggerContent ? ' document-title-file' : ''}`}>
+      <button className={`diagram-trigger${triggerContent ? ' file-trigger' : ''}`} aria-label="Схемы" title={triggerContent ? undefined : `${trackerLabel(title, tracker?.trackerKey)} — выбрать схему`}
+        aria-haspopup="dialog" aria-expanded={open} onClick={() => { prepare(); setSection(tracker ? 'tracker' : 'diagrams'); dialog.current?.showModal(); setOpen(true) }}>
+        {triggerContent ?? <><span>{trackerLabel(title, tracker?.trackerKey)}</span><span aria-hidden="true">▾</span></>}
       </button>
     </h1>
     <dialog ref={dialog} className="diagrams-dialog" aria-labelledby="diagrams-heading"
       onCancel={event => { if (importing) event.preventDefault() }}
-      onClose={() => { setOpen(false); trigger.current?.focus() }}>
+      onClose={() => { setOpen(false); if (!movingFocus.current) returnFocus(); movingFocus.current = false }}>
       <div className="diagrams-heading"><h2 id="diagrams-heading">Схемы</h2>
         <button className="icon-button" aria-label="Закрыть список схем" disabled={importing} onClick={() => dialog.current?.close()}>×</button>
       </div>
+      <fieldset className="scheme-actions" disabled={creating || importing}>
+        <legend>Открытая схема</legend>
+        {actions(closeForAction)}
+      </fieldset>
       <div className="catalog-sections" role="group" aria-label="Раздел каталога">
         <button type="button" aria-pressed={section === 'diagrams'} disabled={creating || importing} onClick={() => setSection('diagrams')}>Схемы</button>
         <button type="button" aria-pressed={section === 'tracker'} disabled={creating || importing} onClick={() => setSection('tracker')}>Задачи</button>
@@ -174,7 +188,9 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
         </div>
         {!connected && <p>Для создания схемы нужно соединение с сервером.</p>}
       </form>
+      </>}
       <div className="diagram-import">
+        <button type="button" disabled={creating || importing} onClick={() => { closeForAction(); openFile() }}>Открыть файл…</button>{' '}
         <input ref={fileInput} type="file" accept=".graphml" aria-label="Файл yEd GraphML" hidden onChange={event => {
           const file = event.currentTarget.files?.[0]
           event.currentTarget.value = ''
@@ -185,7 +201,6 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
         </button>
         <p>GraphML: иерархия и порядок, до 1000 узлов и 5 МиБ. Откроется отдельная схема.</p>
       </div>
-      </>}
     </dialog>
   </>
 }

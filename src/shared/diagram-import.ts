@@ -16,12 +16,12 @@ export class ImportError extends Error {
 }
 
 /** Проверяет дерево до любых изменений документа; не применяет CRDT-восстановление. */
-export function validateImport(value: unknown): { nodes: ImportNode[]; rootId: string } {
+export function validateImport(value: unknown, maxNodes = IMPORT_NODE_LIMIT): { nodes: ImportNode[]; rootId: string } {
   if (!value || typeof value !== 'object' || !('nodes' in value) || !Array.isArray(value.nodes)) {
     throw new ImportError('Ожидается список узлов схемы.')
   }
-  if (!value.nodes.length || value.nodes.length > IMPORT_NODE_LIMIT) {
-    throw new ImportError(`Схема должна содержать от 1 до ${IMPORT_NODE_LIMIT} узлов.`)
+  if (!value.nodes.length || value.nodes.length > maxNodes) {
+    throw new ImportError(Number.isFinite(maxNodes) ? `Схема должна содержать от 1 до ${maxNodes} узлов.` : 'Схема должна содержать хотя бы один узел.')
   }
   const nodes: ImportNode[] = []
   const ids = new Set<string>()
