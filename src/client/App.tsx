@@ -12,10 +12,10 @@ import { layoutTree, NODE_WIDTH, NODE_MIN_HEIGHT } from './layout'
 import { beginSiblingDrag, isSiblingDragValid, siblingDropTarget, type DragPreview } from './sibling-drag'
 import { browserIdentity, initials, subscribeIdentity } from './identity'
 import { summarizeParticipants } from './presence'
-import { FileActions } from './FileActions'
-import { downloadDiagram } from './diagram-file'
+import { FileActions, type FileActionsHandle } from './FileActions'
+import { downloadDiagram, pickWritableFile } from './diagram-file'
 import { shareFileSession, type OpenLocalFile } from './file-session'
-import { StorageActions } from './StorageActions'
+import { StorageActions, type StorageAction } from './StorageActions'
 import { FileIndicator } from './FileIndicator'
 
 const nodeTypes = { cell: Cell }
@@ -57,8 +57,9 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const [notice, setNotice] = useState<string | null>(null)
   const [help, setHelp] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
-  const [filesOpen, setFilesOpen] = useState(false)
-  const [storageMode, setStorageMode] = useState<'save' | 'delete' | null>(null)
+  const fileActions = useRef<FileActionsHandle>(null)
+  const pickingFile = useRef(false)
+  const [storageMode, setStorageMode] = useState<StorageAction | null>(null)
   const [sharing, setSharing] = useState(false)
   const [shareLink, setShareLink] = useState('')
   const shareDialog = useRef<HTMLDialogElement>(null)
@@ -231,6 +232,29 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (session.file) void session.file.retry().catch(error => setNotice(String(error)))
     else { try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } }
   }, [commit, session, documentTitle])
+  const downloadCopy = () => {
+    try { commit(); downloadDiagram(session.doc, documentTitle); setNotice(null) }
+    catch (error) { setNotice(error instanceof Error ? error.message : String(error)) }
+    focusCanvas()
+  }
+  async function openDiskFile() {
+    if (pickingFile.current || switching) return
+    pickingFile.current = true; setNotice(null)
+    const epoch = actionEpoch.current
+    try {
+      // Вызываем системный picker непосредственно из нажатия, сохраняя user activation.
+      const { handle, text } = await pickWritableFile()
+      if (epoch !== actionEpoch.current || session.closed) return
+      await openLocal(handle, text)
+    } catch (error) {
+      if (epoch === actionEpoch.current && !(error instanceof DOMException && error.name === 'AbortError')) {
+        setNotice(error instanceof Error ? error.message : String(error))
+      }
+    } finally {
+      pickingFile.current = false
+      if (epoch === actionEpoch.current && !session.closed) focusCanvas()
+    }
+  }
   useEffect(() => {
     const save = (event: globalThis.KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS' && !event.altKey) { event.preventDefault(); saveFile() }
@@ -423,19 +447,28 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   return <>
     {createPortal(<>
       <DiagramPicker id={session.id} title={documentTitle} tracker={session.tracker} connected={session.source === 'system' ? connected : navigator.onLine}
+        currentSection={session.source !== 'system' ? 'files' : session.tracker ? 'tracker' : 'diagrams'}
+        modeLabel={session.source === 'file' ? 'Файл на диске' : session.source === 'guest' ? 'По ссылке' : session.tracker ? 'Задача' : 'Внутренняя схема'}
+        currentName={session.file?.handle.name || session.fileName || trackerLabel(documentTitle, session.tracker?.trackerKey)}
         triggerContent={session.source !== 'system' ? <FileIndicator session={session} /> : undefined}
         temporary={session.source !== 'system' || session.deleted} navigate={navigateToDiagram} requestIdentity={requestIdentity}
-        prepare={commit} returnFocus={focusCanvas} openFile={() => setFilesOpen(true)} actions={close => <>
-          <button disabled={!ready || switching} onClick={() => { close(); if (session.file) { saveFile(); focusCanvas() } else setStorageMode('save') }}>{session.file ? 'Сохранить файл' : 'Сохранить в файл…'}</button>
-          {session.source === 'system' && <button className="delete-button" disabled={session.id === 'main' || !connected || !session.canEdit || switching}
-            onClick={() => { close(); setStorageMode('delete') }}>Удалить схему…</button>}
+        prepare={commit} returnFocus={focusCanvas} openFile={mode => { if (mode === 'disk') void openDiskFile(); else fileActions.current?.open(mode) }} actions={close => <>
+          {session.source === 'system' && <>
+            <button disabled={!ready || switching} onClick={() => { close(); downloadCopy() }}>Сохранить в файл</button>
+            <button disabled={session.id === 'main' || !connected || !session.canEdit || switching} title={session.id === 'main' ? 'Основная схема защищена от удаления' : 'Удалить внутреннюю копию после записи и перейти к файлу'}
+              onClick={() => { close(); setStorageMode('transfer') }}>Перенести в файл</button>
+            <button disabled={!ready || !connected || !session.canEdit || switching} onClick={() => { close(); fileActions.current?.open('replace') }}>Заменить из файла</button>
+            <button className="delete-button" disabled={session.id === 'main' || !connected || !session.canEdit || switching}
+              onClick={() => { close(); setStorageMode('delete') }}>Удалить схему</button>
+          </>}
           {session.file && <>
             <button disabled={sharing || !navigator.onLine} onClick={() => {
               close(); commit(); focusCanvas(); setSharing(true)
               void shareFileSession(session).then(setShareLink).catch(error => { setNotice(String(error)); focusCanvas() }).finally(() => setSharing(false))
-            }}>{sharing ? 'Подключаем…' : 'Поделиться сессией'}</button>
-            <button onClick={() => { close(); commit(); try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } focusCanvas() }}>Скачать копию</button>
+            }}>{sharing ? 'Подключаем' : 'Поделиться сессией'}</button>
+            <button disabled={!ready || switching || !navigator.onLine} onClick={() => { close(); setStorageMode('internal') }}>Сохранить как внутреннюю</button>
           </>}
+          {session.source !== 'system' && <button disabled={!ready || switching} onClick={() => { close(); downloadCopy() }}>Скачать копию</button>}
         </>} />
       {!session.waitingForOwner && (session.source !== 'file' || session.provider) && <div className="connection" data-testid="connection" data-connected={String(connected)}
         title={connected ? 'В сети' : 'Offline'}
@@ -495,8 +528,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         </div>}
       </div>
     </>, header)}
-    <FileActions open={filesOpen} close={() => setFilesOpen(false)} returnFocus={focusCanvas} session={session} title={documentTitle}
-      navigate={navigateToDiagram} openLocal={openLocal} requestIdentity={requestIdentity} />
+    <FileActions ref={fileActions} returnFocus={focusCanvas} reportError={setNotice} session={session} title={trackerLabel(documentTitle, session.tracker?.trackerKey)}
+      navigate={navigateToDiagram} requestIdentity={requestIdentity} />
     <StorageActions mode={storageMode} close={() => setStorageMode(null)} returnFocus={focusCanvas} session={session} title={documentTitle}
       navigate={navigateToDiagram} openLocal={openLocal} requestIdentity={requestIdentity} />
     <dialog ref={shareDialog} className="diagrams-dialog file-dialog" aria-label="Совместная файловая сессия" onClose={focusCanvas} onCancel={() => setShareLink('')}>
@@ -546,6 +579,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Shift + Enter', 'В редакторе: перенос строки'],
           ['Esc на схеме', 'Вернуться к панели действий'],
           ['Ctrl + Z', 'Отменить действие'], ['Ctrl + Shift + Z / Y', 'Повторить действие'],
+          ['Ctrl + O', 'Выбрать схему для редактирования'],
           ['Ctrl + S', 'Сохранить схему в файл'],
         ].map(([key, label]) => <div className="help-row" key={key}><span>{label}</span><kbd>{key}</kbd></div>)}
         <p>Мышью: клик активирует клеточку. Тяни активную клеточку, чтобы изменить порядок среди детей одного родителя; неактивную — чтобы переместить холст без смены выделения. Esc отменяет перестановку.</p>

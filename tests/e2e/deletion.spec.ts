@@ -3,31 +3,32 @@ import { test, expect, namedContext, type Page } from './fixtures'
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 const ready = (page: Page) => expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
 const picker = (page: Page) => page.getByRole('button', { name: 'Схемы', exact: true }).click()
-const transferLabel = 'Удалить из внутреннего хранилища и продолжить работу с файлом'
 async function create(page: Page, title = 'Удаляемая схема', base = 'http://127.0.0.1:4173/') {
   const { id } = await (await page.request.post('/api/diagrams', { data: { title } })).json()
   await page.goto(`${base}?diagram=${id}`); await ready(page); return id as string
 }
 async function deleteDialog(page: Page) {
-  await picker(page); await page.getByRole('button', { name: 'Удалить схему…' }).click()
+  await picker(page); await page.getByRole('button', { name: 'Удалить схему' }).click()
 }
-async function saveDialog(page: Page) {
-  await picker(page); await page.getByRole('button', { name: 'Сохранить в файл…', exact: true }).click()
+async function transferDialog(page: Page) {
+  await picker(page); await page.getByRole('button', { name: 'Перенести в файл', exact: true }).click()
 }
 
 test('scheme actions live in the picker, main is protected, cancellation restores keyboard focus', async ({ page }) => {
   await page.goto('/'); await ready(page)
   await page.getByRole('button', { name: 'Действия с клеточкой' }).click()
-  await expect(page.getByRole('button', { name: 'Открыть файл…' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Сохранить в файл…' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Заменить из файла' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Сохранить в файл' })).toHaveCount(0)
   await picker(page)
-  await expect(page.getByRole('button', { name: 'Удалить схему…' })).toBeDisabled()
-  await page.getByRole('group', { name: 'Раздел каталога' }).getByRole('button', { name: 'Задачи' }).click()
-  await expect(page.getByRole('button', { name: 'Открыть файл…' })).toBeVisible()
-  await page.getByRole('button', { name: 'Сохранить в файл…' }).click()
-  await expect(page.getByLabel(transferLabel)).toBeDisabled()
-  await expect(page.locator('dialog[open]')).toHaveCount(1)
-  await page.getByRole('button', { name: 'Отмена', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Удалить схему' })).toBeDisabled()
+  await page.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab', { name: 'Задачи' }).click()
+  await expect(page.getByRole('button', { name: 'Заменить из файла' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Перенести в файл' })).toBeDisabled()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Сохранить в файл' }).click()
+  await download
+  await expect(page.getByRole('checkbox')).toHaveCount(0)
+  await expect(page.locator('dialog[open]')).toHaveCount(0)
   await expect(page.locator('main')).toBeFocused()
 })
 
@@ -44,10 +45,14 @@ test('deletion freezes peers, clears document caches and prevents offline resurr
     await page.getByRole('button', { name: 'Отмена', exact: true }).click()
     expect((await page.request.get(`/api/diagrams/${id}`)).status()).toBe(200)
     await deleteDialog(page); await page.getByRole('button', { name: 'Удалить для всех' }).click()
-    await expect(page.getByRole('dialog', { name: 'Схемы', exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })).toBeVisible()
     expect((await page.request.get(`/api/diagrams/${id}`)).status()).toBe(410)
     await expect(peer.getByRole('alert')).toContainText('Схема удалена')
     await expect(root(peer)).toHaveAttribute('data-text', 'Draft другой вкладки')
+    await picker(peer)
+    await expect(peer.getByRole('tab', { name: 'Схемы', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(peer.getByRole('tab', { name: 'Схемы', exact: true })).toBeFocused()
+    await peer.keyboard.press('Escape')
     await root(peer).dblclick(); await expect(peer.getByRole('textbox', { name: 'Текст клеточки' })).toHaveCount(0)
     await expect.poll(() => peer.evaluate(async id => (await indexedDB.databases()).filter(db => db.name?.startsWith(`decompose:${id}`)).length, id)).toBe(0)
     await offlineContext.setOffline(false)
@@ -63,7 +68,7 @@ test('a deleted tracker link requires explicit recreation and does not reconnect
   await page.goto('/tracker/DELETE-920'); await ready(page)
   const oldId = await page.locator('main').getAttribute('data-diagram-id')
   await deleteDialog(page); await page.getByRole('button', { name: 'Удалить для всех' }).click()
-  await expect(page.getByRole('dialog', { name: 'Схемы', exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })).toBeVisible()
   await page.goto('/tracker/DELETE-920')
   await expect(page.getByRole('button', { name: 'Создать новое дерево' })).toBeVisible()
   expect((await page.request.get('/api/tracker/DELETE-920')).status()).toBe(410)
@@ -85,7 +90,7 @@ async function savePicker(page: Page, fail = false, denied = false) {
         return createWritable()
       },
     })
-    Object.assign(window, { showSaveFilePicker: async () => handle })
+    Object.assign(window, { showSaveFilePicker: async (options: unknown) => { Object.assign(window, { saveOptions: options }); return handle } })
   }, { fail, denied })
 }
 async function diskText(page: Page) {
@@ -100,9 +105,12 @@ test('transfer under a prefix includes remote drafts, reconciles a lost commit r
     const peer = await context.newPage(); await peer.goto(page.url()); await ready(peer)
     await root(peer).dblclick(); await peer.getByRole('textbox').fill('Последний текст участника')
     await page.route('**/file-transfer/*/commit', async route => { await route.fetch(); await route.abort() })
-    await saveDialog(page); await page.getByLabel(transferLabel).check()
+    await transferDialog(page)
     await page.getByRole('button', { name: 'Перенести в файл' }).click()
     await expect(page).toHaveURL(/\/decompose\/file\/local\/[\da-f-]{36}/)
+    expect(await page.evaluate(() => (window as unknown as { saveOptions: unknown }).saveOptions)).toMatchObject({
+      suggestedName: 'Исходная схема.deco', types: [{ accept: { 'application/json': ['.deco'] } }],
+    })
     await expect(page.locator('.file-indicator')).toContainText('Файл на диске')
     await expect(page.locator('.file-name')).toHaveText('transfer.json')
     await expect(root(page)).toHaveAttribute('data-text', 'Последний текст участника')
@@ -119,7 +127,7 @@ test('transfer under a prefix includes remote drafts, reconciles a lost commit r
 test('a cancelled picker or failed write leaves the system diagram editable and does not delete it', async ({ page }) => {
   const id = await create(page)
   await page.evaluate(() => Object.assign(window, { showSaveFilePicker: async () => { throw new DOMException('Отмена', 'AbortError') } }))
-  await saveDialog(page); await page.getByLabel(transferLabel).check()
+  await transferDialog(page)
   await page.getByRole('button', { name: 'Перенести в файл' }).click()
   await expect(page.getByRole('button', { name: 'Перенести в файл' })).toBeEnabled()
   expect((await page.request.get(`/api/diagrams/${id}`)).status()).toBe(200)
@@ -152,7 +160,7 @@ test('leaving the diagram while the native picker is pending cancels the transfe
   })
   const preparations: string[] = []
   page.on('request', request => { if (request.url().endsWith('/file-transfer')) preparations.push(request.url()) })
-  await saveDialog(page); await page.getByLabel(transferLabel).check()
+  await transferDialog(page)
   await page.getByRole('button', { name: 'Перенести в файл' }).click()
   await page.goBack(); await ready(page)
   await expect(page.locator('main')).toHaveAttribute('data-diagram-id', 'main')

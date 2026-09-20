@@ -1,17 +1,39 @@
 import { useEffect, useRef, useState } from 'react'
-import { isTrackerSummary, TRACKER_PAGE_SIZE, trackerLabel, trackerUrl, type TrackerPage, type TrackerSummary } from '../shared/tracker'
+import { isTrackerSummary, normalizeTrackerKey, TRACKER_PAGE_SIZE, trackerLabel, trackerUrl, type TrackerPage, type TrackerSummary } from '../shared/tracker'
 import { cachedTrackerSearch, rememberTrackers } from './tracker-catalog'
 import { appUrl } from './app-url'
+import { CatalogList, type CatalogListHandle } from './CatalogList'
+import { catalogSearchKeyDown, preventRepeatedEnter } from './catalog-search'
 
 export function TrackerList({ id, navigate }: { id: string; navigate: (url: string) => void }) {
-  const input = useRef<HTMLInputElement>(null)
+  const list = useRef<CatalogListHandle>(null)
+  const createButton = useRef<HTMLButtonElement>(null)
   const [query, setQuery] = useState('')
   const [offset, setOffset] = useState(0)
   const [items, setItems] = useState<TrackerSummary[]>([])
   const [nextOffset, setNextOffset] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [offline, setOffline] = useState(false)
-  useEffect(() => { input.current?.focus() }, [])
+  const key = normalizeTrackerKey(query)
+  const [missingQuery, setMissingQuery] = useState<string | null>(null)
+  const canCreate = !!key && missingQuery === query && !loading && !offline && navigator.onLine
+
+  useEffect(() => {
+    setMissingQuery(null)
+    if (!key) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      try {
+        if (!navigator.onLine) return
+        // Совпадение ключа может находиться за пределами первой страницы поиска.
+        const response = await fetch(appUrl(`api/tracker/${encodeURIComponent(key)}`), {
+          cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+        })
+        if (!controller.signal.aborted && (response.status === 404 || response.status === 410)) setMissingQuery(query)
+      } catch { /* Ошибка проверки не означает, что ключ свободен. */ }
+    }, 250)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [key, query])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -44,21 +66,25 @@ export function TrackerList({ id, navigate }: { id: string; navigate: (url: stri
   }, [query, offset])
 
   return <section aria-label="Деревья задач">
-    <label className="tracker-search" htmlFor="tracker-search">Поиск задач
-      <input ref={input} id="tracker-search" type="search" value={query} maxLength={500} placeholder="Ключ или описание"
-        onChange={event => { setQuery(event.target.value); setOffset(0) }} />
-    </label>
-    {!query && <p>Последние изменённые деревья задач</p>}
+    <div className="catalog-query">
+      <input className="catalog-search-input" id="tracker-search" type="search" aria-label="Поиск задач"
+        value={query} maxLength={500} placeholder="Ключ или описание"
+        autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false}
+        onChange={event => {
+          setQuery(event.target.value); setOffset(0); setMissingQuery(null)
+          setItems([]); setNextOffset(null); setLoading(true)
+        }}
+        onKeyDown={event => catalogSearchKeyDown(event, {
+          list: list.current, createButton: createButton.current, loading,
+          openFirst: items.length ? () => navigate(trackerUrl(items[0].trackerKey)) : undefined,
+        })} />
+      <button ref={createButton} type="button" disabled={!canCreate} onKeyDown={preventRepeatedEnter}
+        onClick={() => { if (canCreate && key) navigate(trackerUrl(key)) }}>Создать</button>
+    </div>
     {offline && <p role="status">Сервер недоступен. Поиск по сохранённому неполному каталогу; offline откроются только ранее загруженные задачи.</p>}
     {loading && <p role="status">Ищем задачи…</p>}
-    <nav aria-label="Список задач" className="diagrams-list">
-      {items.map(item => <a key={item.id} href={trackerUrl(item.trackerKey)} aria-current={item.id === id ? 'page' : undefined}
-        onClick={event => {
-          if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return
-          event.preventDefault()
-          navigate(trackerUrl(item.trackerKey))
-        }}><span>{trackerLabel(item.title, item.trackerKey)}</span>{item.id === id && <small>Открыта</small>}</a>)}
-    </nav>
+    <CatalogList ref={list} label="Список задач" currentId={id} navigate={navigate}
+      items={items.map(item => ({ id: item.id, title: trackerLabel(item.title, item.trackerKey), href: trackerUrl(item.trackerKey) }))} />
     {!loading && !items.length && <p>Задачи не найдены.</p>}
     {nextOffset !== null && <button className="tracker-more" disabled={loading} onClick={() => setOffset(nextOffset)}>Показать ещё</button>}
   </section>

@@ -6,7 +6,7 @@ async function ready(page: Page) {
 }
 async function newDiagram(page: Page, title: string) {
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.getByLabel('Новая схема', { exact: true }).fill(title)
+  await page.getByLabel('Поиск или название новой схемы', { exact: true }).fill(title)
   await page.getByRole('button', { name: 'Создать', exact: true }).click()
   await expect(page).toHaveURL(/\/diagram\/[0-9a-f-]{36}$/)
   await ready(page)
@@ -74,25 +74,29 @@ test('closing the picker and file dialogs returns keyboard commands to the activ
   await page.keyboard.press('Enter')
   const cell = page.locator('[data-text="Текущая клеточка"]')
   const trigger = page.getByRole('button', { name: 'Схемы', exact: true })
-  for (const action of ['escape', 'close', 'open', 'save', 'delete', 'download']) {
+  for (const action of ['escape', 'close', 'open', 'delete', 'download']) {
     await trigger.focus()
     await page.keyboard.press('Enter')
-    const catalog = page.getByRole('dialog', { name: 'Схемы', exact: true })
+    const catalog = page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })
     await expect(catalog).toBeVisible()
     if (action === 'escape') await page.keyboard.press('Escape')
     else if (action === 'close') await page.getByRole('button', { name: 'Закрыть список схем' }).click()
-    else {
-      const label = action === 'open' ? 'Открыть файл…' : action === 'delete' ? 'Удалить схему…' : 'Сохранить в файл…'
-      await catalog.getByRole('button', { name: label, exact: true }).click()
+    else if (action === 'download') {
+      const download = page.waitForEvent('download')
+      await catalog.getByRole('button', { name: 'Сохранить в файл', exact: true }).click()
+      await download
+    } else if (action === 'open') {
+      const chooser = page.waitForEvent('filechooser')
+      await catalog.getByRole('button', { name: 'Заменить из файла', exact: true }).click()
+      await chooser
+      await expect(page.locator('dialog[open]')).toHaveCount(0)
+      await page.getByLabel('Файл схемы', { exact: true }).dispatchEvent('cancel')
+    } else {
+      await catalog.getByRole('button', { name: 'Удалить схему', exact: true }).click()
       await expect(page.locator('dialog[open]')).toHaveCount(1)
       await expect(page.locator('dialog[open]')).toHaveJSProperty('open', true)
       await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('dialog[open]'))).toBe(true)
-      if (action === 'download') {
-        const download = page.waitForEvent('download')
-        await page.getByRole('button', { name: 'Скачать копию', exact: true }).click()
-        await download
-      } else if (action === 'save') await page.keyboard.press('Escape')
-      else await page.getByRole('button', { name: 'Отмена', exact: true }).click()
+      await page.getByRole('button', { name: 'Отмена', exact: true }).click()
     }
     await expect(page.locator('dialog[open]')).toHaveCount(0)
     await expect(page.locator('main')).toBeFocused()

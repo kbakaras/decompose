@@ -222,6 +222,29 @@ export async function shareFileSession(session: Session) {
   return session.roomUrl
 }
 
+/** Дожидаемся последних принятых обновлений перед снимком файла для внутренней схемы. */
+export async function finishFileSharing(session: Session, signal: AbortSignal) {
+  if (!session.roomUrl) return
+  if (!session.connected || !session.provider || !session.roomClose) throw new Error('Нет связи с файловой сессией. Восстанови соединение перед переносом.')
+  await session.synced()
+  signal.throwIfAborted()
+  if (!session.roomUrl) return
+  const provider = session.provider
+  await new Promise<void>((resolve, reject) => {
+    const finish = (error?: Error) => {
+      clearTimeout(timer); provider.off('stateless', received); signal.removeEventListener('abort', aborted)
+      if (error) reject(error); else resolve()
+    }
+    const received = ({ payload }: { payload: string }) => {
+      try { if (JSON.parse(payload).type === 'file-ended') finish() } catch { /* Не сообщение завершения. */ }
+    }
+    const aborted = () => finish(new DOMException('Переход отменён', 'AbortError'))
+    const timer = setTimeout(() => finish(new Error('Не удалось подтвердить завершение файловой сессии. Повтори после восстановления связи.')), 10000)
+    provider.on('stateless', received); signal.addEventListener('abort', aborted, { once: true })
+    session.roomClose!()
+  })
+}
+
 export async function openGuestSession(id: string, signal: AbortSignal) {
   const lookup = async (signal: AbortSignal) => {
     const response = await fetch(appUrl(`api/file-sessions/${id}`), { cache: 'no-store', signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]) })

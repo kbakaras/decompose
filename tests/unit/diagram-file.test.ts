@@ -29,7 +29,10 @@ it('validates version, settings, cycles, duplicates and size without the yEd nod
     { ...file, nodes: [{ ...nodes[0], children: ['0'] }] }]) expect(() => validateDiagramFile(invalid)).toThrow()
   expect(() => parseDiagramFile('{')).toThrow('JSON')
   expect(() => parseDiagramFile(' '.repeat(DIAGRAM_FILE_LIMIT + 1))).toThrow('5 МиБ')
-  expect(diagramFilename(' a:/b\n ')).toBe('a__b.decompose.json')
+  expect(diagramFilename(' a:/b\n ')).toBe('a__b.deco')
+  for (const name of ['Дерево дел', 'Дерево дел.deco', 'Дерево дел.decompose.json', 'Дерево дел.json', 'Дерево дел.DECO', 'Дерево дел.deco.deco']) {
+    expect(diagramFilename(name)).toBe('Дерево дел.deco')
+  }
 })
 
 function fileHandle(text: string) {

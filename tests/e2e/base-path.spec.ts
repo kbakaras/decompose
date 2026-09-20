@@ -8,7 +8,7 @@ const ready = async (page: Page) => { await expect(page.locator('main')).toHaveA
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 async function ordinaryPicker(page: Page) {
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.getByRole('group', { name: 'Раздел каталога' }).getByRole('button', { name: 'Схемы', exact: true }).click()
+  await page.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab', { name: 'Схемы', exact: true }).click()
 }
 async function child(page: Page, text: string) {
   await root(page).click()
@@ -48,7 +48,7 @@ test('one build and backend work simultaneously at root and stripped prefix on i
     await expect(page.locator('[data-text="Один backend, два адреса"]')).toBeVisible()
 
     await ordinaryPicker(page)
-    await page.getByLabel('Новая схема', { exact: true }).fill('Схема с префиксом')
+    await page.getByLabel('Поиск или название новой схемы', { exact: true }).fill('Схема с префиксом')
     await page.getByRole('button', { name: 'Создать', exact: true }).click()
     await expect(root(page)).toHaveAttribute('data-text', 'Схема с префиксом')
     const diagramUrl = page.url()
@@ -62,7 +62,9 @@ test('one build and backend work simultaneously at root and stripped prefix on i
     expect(await page.evaluate(() => document.baseURI)).toBe(prefixBase)
 
     await ordinaryPicker(page)
-    await page.getByLabel('Файл yEd GraphML').setInputFiles(resolve('tests/fixtures/yed-tree.graphml'))
+    await page.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab', { name: 'Файлы', exact: true }).click()
+    await page.getByRole('button', { name: 'Новая схема из файла', exact: true }).click()
+    await page.getByLabel('Файл схемы', { exact: true }).setInputFiles(resolve('tests/fixtures/yed-tree.graphml'))
     await expect(root(page)).toHaveAttribute('data-text', 'Учебная схема')
     expect(page.url().startsWith(prefixBase + 'diagram/')).toBe(true)
     await expect(page.locator('[data-cell-id]')).toHaveCount(28)
@@ -142,7 +144,7 @@ test('canonical diagram paths accept old links without adding a history entry at
     await page.goto(base); await ready(page)
     await page.goto(base + `?diagram=${id}&choose=1`)
     await ready(page)
-    await expect(page.getByRole('dialog', { name: 'Схемы', exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })).toBeVisible()
     await expect(page).toHaveURL(base + `diagram/${id}`)
     await page.keyboard.press('Escape')
     await page.goBack(); await ready(page)

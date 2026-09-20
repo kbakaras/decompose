@@ -50,6 +50,7 @@ export function serializeDiagram(doc: Y.Doc): string {
 }
 
 export function diagramFilename(title: string): string {
-  const name = title.replace(/\s+/g, ' ').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().slice(0, 100).replace(/[. ]+$/, '')
-  return `${name || 'Схема'}.decompose.json`
+  const stem = title.trim().replace(/(?:\.decompose\.json|\.deco|\.json)+$/i, '')
+  const name = stem.replace(/\s+/g, ' ').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().slice(0, 100).replace(/[. ]+$/, '')
+  return `${name || 'Схема'}.deco`
 }

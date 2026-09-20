@@ -19,7 +19,7 @@ export function canSaveDiskFile(): boolean { return isSecureContext && typeof (w
 export async function pickSaveFile(title: string) {
   const picker = (window as FilePickerWindow).showSaveFilePicker
   if (!canSaveDiskFile() || !picker) throw new Error('Для переноса нужны HTTPS или локальный запуск и браузер с прямой записью файлов.')
-  const handle = await picker.call(window, { suggestedName: diagramFilename(title), types: [{ description: 'Схема дерево·дел', accept: { 'application/json': ['.json'] } }] })
+  const handle = await picker.call(window, { suggestedName: diagramFilename(title), types: [{ description: 'Схема дерево·дел', accept: { 'application/json': ['.deco'] } }] })
   if (await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') throw new Error('Нет разрешения на запись.')
   return { handle, baseline: await (await handle.getFile()).text() }
 }
@@ -36,7 +36,7 @@ export function canEditDiskFile(): boolean { return isSecureContext && typeof (w
 export async function pickWritableFile() {
   const picker = (window as FilePickerWindow).showOpenFilePicker
   if (!canEditDiskFile() || !picker) throw new Error('Запись в исходный файл требует HTTPS или локального запуска и браузера с File System Access API, например Chrome/Edge. Здесь можно скачать или импортировать копию.')
-  const [handle] = await picker.call(window, { multiple: false, types: [{ description: 'Схема дерево·дел', accept: { 'application/json': ['.json'] } }] })
+  const [handle] = await picker.call(window, { multiple: false, types: [{ description: 'Схема дерево·дел', accept: { 'application/json': ['.deco', '.json'] } }] })
   if (await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') throw new Error('Нет разрешения на запись в файл.')
   return { handle, text: await readDiagramText(await handle.getFile()) }
 }

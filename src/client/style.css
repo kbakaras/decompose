@@ -17,19 +17,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .diagram-trigger { text-align: left; background: transparent; }
 .diagram-trigger:focus-visible { outline-offset: -2px; }
 .diagram-trigger:hover { background: #e8e9df; }.diagram-trigger span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.diagrams-dialog { color: inherit; width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid #dddccf; border-radius: 10px; background: #fffefa; box-shadow: 0 15px 50px #37402725; }
+.diagrams-dialog { color: inherit; width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid #dddccf; border-radius: 10px; background: #fffefa; box-shadow: 0 15px 50px #37402725; outline: none; }
+.diagrams-dialog button:focus-visible, .diagrams-dialog a:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #587348; }
+@media (forced-colors: active) { .diagrams-dialog button:focus-visible, .diagrams-dialog a:focus-visible { outline: 2px solid Highlight; outline-offset: -3px; } }
 .diagrams-dialog::backdrop { background: #263c3040; }.diagrams-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.diagrams-heading h2 { margin: 0; font-size: 20px; font-weight: 500; }
 .diagrams-dialog p { font-size: 12px; line-height: 1.5; }.diagrams-list { display: grid; gap: 4px; margin: 16px 0; max-height: 40dvh; overflow-y: auto; }
-.catalog-sections { display: flex; gap: 6px; margin: 12px 0; }
-.catalog-sections button, .tracker-more { padding: 7px 12px; border: 1px solid #b7bcae; border-radius: 5px; background: transparent; font-size: 13px; }
-.catalog-sections button[aria-pressed="true"] { background: #edf0e5; border-color: #628c39; }
-.tracker-search { display: grid; gap: 6px; font-size: 13px; }
-.tracker-search input { width: 100%; min-width: 0; padding: 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; }
+.catalog-sections { display: flex; gap: 4px; margin: 12px 0; border-bottom: 1px solid #dddccf; }
+.catalog-sections [role="tab"] { padding: 9px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 13px; }
+.catalog-sections [role="tab"]:hover:not(:disabled) { background: #edf0e5; }
+.catalog-sections [aria-selected="true"] { color: #365425; border-bottom-color: #628c39; background: #edf0e5; }
+.catalog-search-input { width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; font-size: 13px; line-height: 18px; }
 .diagrams-list a { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-radius: 5px; color: inherit; text-decoration: none; font-size: 14px; overflow-wrap: anywhere; }
 .diagrams-list a:hover, .diagrams-list a[aria-current] { background: #edf0e5; }.diagrams-list small { flex-shrink: 0; color: #727c6e; font-size: 11px; }
-.diagram-create { border-top: 1px solid #dddccf; padding-top: 16px; }.diagram-create label { display: block; margin-bottom: 8px; font-size: 13px; }.diagram-create > div { display: flex; gap: 8px; }
-.diagram-create input { flex: 1; width: 0; min-width: 0; padding: 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; }.diagram-create button, .diagram-import button { padding: 8px 12px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; }
-.diagram-import { margin-top: 16px; }.diagram-import p { margin-bottom: 0; color: #596252; }
+.catalog-query { display: flex; gap: 8px; }
+.catalog-query input { flex: 1; width: 0; }
 .connection { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #727c6e; white-space: nowrap; flex-shrink: 0; }
 .connection i { width: 6px; height: 6px; border-radius: 50%; }.online { background: #5a8762; }.offline { background: #c4813f; }
 .avatars { display: flex; margin-left: 4px; flex-shrink: 0; }.avatars span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; border: 2px solid #f6f4ed; margin-left: -4px; color: white; font-size: 9px; }
@@ -103,7 +104,20 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .loading { padding: 80px 32px; color: #8b9185; text-align: center; }
 @media (max-width: 700px) { .avatars .remote-avatar, .participant-count, .connection span { display: none; }.topbar { gap: 4px; padding: 0 8px; }.document-title { margin: 0 4px; align-self: center; }.brand { align-self: center; height: 28px; padding-left: 28px; }.brand-name { display: none; } }
 @media (max-width: 700px) { .introduce-label { display: none; }.introduce-icon { display: block; } }
-.scheme-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; padding: 10px; border: 1px solid #d8d3c7; border-radius: 8px; }
-.scheme-actions legend { padding: 0 5px; }
-.scheme-actions button { padding: 7px 10px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; font-size: 13px; }
+.management-dialog { --management-top: clamp(12px, 8dvh, 64px); --management-padding: 20px; width: min(640px, calc(100% - 24px)); top: var(--management-top); bottom: auto; margin: 0 auto; padding: var(--management-padding); max-height: calc(100dvh - var(--management-top) - 24px); overflow: hidden; transition: height 180ms ease; }
+.management-content { display: flow-root; max-height: calc(100dvh - var(--management-top) - 24px - 2 * var(--management-padding) - 2px); overflow: auto; }
+@media (prefers-reduced-motion: reduce) { .management-dialog { transition: none; } }
+.current-scheme { margin-top: 12px; padding: 10px; background: #fff5d6; border-radius: 6px; }
+.current-scheme-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 12px; }
+.storage-kind { flex-shrink: 0; padding: 2px 6px; border-radius: 4px; background: #e4e9dd; font-size: 11px; font-weight: 400; }
+.current-scheme .current-scheme-name { width: 100%; min-width: 0; margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.open-scheme { margin-top: 16px; }
+.diagrams-list:focus { outline: none; }
+.management-dialog .diagrams-list { max-height: 25dvh; margin: 10px 0; }
+.scheme-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.scheme-actions button, .catalog-query button, .tracker-more { padding: 7px 6px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; font-size: 13px; line-height: 18px; }
 .scheme-actions .delete-button { color: #8f3028; background: transparent; }
+.file-choices { display: grid; gap: 8px; }
+.file-choices button { padding: 12px; text-align: left; border: 1px solid #b7bcae; border-radius: 5px; background: #fffefa; font-size: 14px; }
+.file-choices small { display: block; margin-top: 4px; color: #596252; font-size: 12px; }
+@media (max-width: 420px) { .management-dialog { --management-padding: 14px; } }

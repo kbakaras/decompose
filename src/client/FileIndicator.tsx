@@ -7,7 +7,7 @@ export function FileIndicator({ session }: { session: Session }) {
   const fileName = file?.handle.name || session.fileName
   const state = file?.error ? 'error' : file?.saving || file?.dirty ? 'saving' : 'saved'
   const status = file
-    ? state === 'error' ? 'Не сохранено' : state === 'saving' ? 'Сохраняем…' : 'Сохранено'
+    ? state === 'error' ? 'Не сохранено' : state === 'saving' ? 'Сохраняем' : 'Сохранено'
     : session.waitingForOwner ? 'Ожидаем владельца файла' : session.ended ? 'Подключение завершено' : !session.canEdit ? 'Только просмотр' : 'Сохраняет владелец'
   const description = [mode, fileName, status].filter(Boolean).join(' — ')
 

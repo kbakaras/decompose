@@ -203,7 +203,7 @@ export function Application() {
         registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
       : <div className="loading">{needsFile ? <>
         <p>{fileRecovery?.record ? `Нужно разрешение на файл «${fileRecovery.record.handle.name}».` : 'Не удалось восстановить файл. Его содержимое хранится только на диске.'}</p>
-        <button onClick={() => { void pickWritableFile().then(({ handle, text }) => openLocal(handle, text)).catch(error => setError(String(error))) }}>Открыть файл на диске…</button>
+        <button onClick={() => { void pickWritableFile().then(({ handle, text }) => openLocal(handle, text)).catch(error => setError(String(error))) }}>Открыть файл на диске</button>
       </> : cancelledTracker ? <>
         <p>Дерево задачи ещё не создано.</p>
         <button onClick={() => { void navigate(cancelledTracker, 'initial') }}>Создать дерево задачи</button>{' '}

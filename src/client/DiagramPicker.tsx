@@ -1,13 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { diagramUrl, isDiagramId, type DiagramSummary } from '../shared/diagrams'
-import { readYedFile } from './yed-import'
+import type { FileAction } from './FileActions'
 import { trackerLabel, type TrackerSummary } from '../shared/tracker'
 import { readTrackerCatalog, rememberTrackers } from './tracker-catalog'
 import { TrackerList } from './TrackerList'
+import { CatalogList, type CatalogListHandle } from './CatalogList'
+import { catalogSearchKeyDown, preventRepeatedEnter } from './catalog-search'
 import { appUrl } from './app-url'
 import { knownDeletion } from './deleted-diagrams'
 
 const catalogKey = 'decompose:diagrams:v1'
+type CatalogSection = 'diagrams' | 'tracker' | 'files'
+const catalogSections: { id: CatalogSection; label: string }[] = [
+  { id: 'diagrams', label: 'Схемы' }, { id: 'tracker', label: 'Задачи' }, { id: 'files', label: 'Файлы' },
+]
 function readCatalog(): DiagramSummary[] {
   try {
     const data: unknown = JSON.parse(localStorage.getItem(catalogKey) ?? '[]')
@@ -20,68 +26,70 @@ function saveCatalog(items: DiagramSummary[]) {
   try { localStorage.setItem(catalogKey, JSON.stringify(items)) } catch { /* Кеш списка необязателен. */ }
 }
 
-export function DiagramPicker({ id, title, tracker, connected, navigate, requestIdentity, temporary = false, actions, openFile, prepare, returnFocus, triggerContent }: {
+export function DiagramPicker({ id, title, tracker, connected, navigate, requestIdentity, temporary = false, actions, openFile, prepare, returnFocus, triggerContent, modeLabel, currentName, currentSection }: {
   id: string; title: string; tracker?: TrackerSummary; connected: boolean; navigate: (url: string) => Promise<void>; requestIdentity: () => Promise<boolean>; temporary?: boolean
-  actions: (close: () => void) => ReactNode; openFile: () => void; prepare: () => void; returnFocus: () => void; triggerContent?: ReactNode
+  actions: (close: () => void) => ReactNode; openFile: (mode: FileAction | 'disk') => void; prepare: () => void; returnFocus: () => void; triggerContent?: ReactNode
+  modeLabel: string; currentName: string; currentSection: CatalogSection
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const fileInput = useRef<HTMLInputElement>(null)
-  const importingRef = useRef(false)
-  const mounted = useRef(true)
+  const content = useRef<HTMLDivElement>(null)
+  const diagramList = useRef<CatalogListHandle>(null)
+  const createButton = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
-  const [section, setSection] = useState<'diagrams' | 'tracker'>(tracker ? 'tracker' : 'diagrams')
+  const [section, setSection] = useState(currentSection)
+  const [focusedSection, setFocusedSection] = useState(currentSection)
+  const tabs = useRef<Partial<Record<CatalogSection, HTMLButtonElement>>>({})
   const [items, setItems] = useState<DiagramSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [importing, setImporting] = useState(false)
   const [name, setName] = useState('')
+  const matchingItems = items.filter(item => item.title.toLowerCase().includes(name.trim().toLowerCase()))
   const [message, setMessage] = useState('')
   const movingFocus = useRef(false)
   const closeForAction = () => { movingFocus.current = true; dialog.current?.close() }
+  const openPicker = useCallback(() => {
+    prepare()
+    setSection(currentSection)
+    setFocusedSection(currentSection)
+    setName('')
+    dialog.current?.showModal()
+    setOpen(true)
+    tabs.current[currentSection]?.focus({ preventScroll: true })
+  }, [prepare, currentSection])
+  useEffect(() => {
+    const openFromKeyboard = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.code !== 'KeyO'
+        || event.altKey || event.shiftKey || event.isComposing) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.repeat || document.querySelector('dialog[open]')) return
+      openPicker()
+    }
+    window.addEventListener('keydown', openFromKeyboard, true)
+    return () => window.removeEventListener('keydown', openFromKeyboard, true)
+  }, [openPicker])
   useEffect(() => {
     const url = new URL(location.href)
     if (url.searchParams.get('choose') !== '1') return
     url.searchParams.delete('choose'); history.replaceState(null, '', url)
-    dialog.current?.showModal(); setOpen(true)
+    openPicker()
   }, [])
 
-  useEffect(() => {
-    mounted.current = true
-    return () => { mounted.current = false }
-  }, [])
-
-  async function importFile(file: File) {
-    if (importingRef.current || creating || !connected) return
-    importingRef.current = true
-    setImporting(true)
-    setMessage('')
-    try {
-      const data = await readYedFile(file)
-      if (!mounted.current || !await requestIdentity() || !mounted.current) return
-      const response = await fetch(appUrl('api/diagrams/import'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
-        signal: AbortSignal.timeout(30000),
-      }).catch(() => {
-        throw new Error('Не удалось завершить импорт. Проверь соединение и список схем перед повтором: сервер мог успеть сохранить схему.')
-      })
-      const result = await response.json().catch(() => null)
-      if (!response.ok || !isDiagramId(result?.id) || typeof result?.title !== 'string') {
-        throw new Error(result?.error || 'Не удалось импортировать схему. Проверь соединение и список схем перед повтором.')
-      }
-      const created: DiagramSummary = result
-      const catalog = [...readCatalog(), created]
-      saveCatalog(catalog)
-      if (!mounted.current) return
-      setItems(catalog)
-      await navigate(diagramUrl(created.id))
-      dialog.current?.close()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Не удалось импортировать схему.')
-    } finally {
-      importingRef.current = false
-      setImporting(false)
+  // Измеряем естественную высоту содержимого, чтобы окно росло вниз без скачка центра.
+  useLayoutEffect(() => {
+    const element = dialog.current, body = content.current
+    if (!open || !element || !body) return
+    const resize = () => {
+      const style = getComputedStyle(element)
+      const frame = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+        + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+      element.style.height = `${Math.ceil(body.getBoundingClientRect().height + frame)}px`
     }
-  }
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(body)
+    return () => { observer.disconnect(); element.style.removeProperty('height') }
+  }, [open])
 
   useEffect(() => {
     if (temporary || knownDeletion(id)) return
@@ -119,87 +127,107 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
     return () => controller.abort()
   }, [open, section, id, title])
 
+  const openDiagram = (url: string) => {
+    dialog.current?.close()
+    void navigate(url).catch(error => setMessage(String(error)))
+  }
+  const createDiagram = async () => {
+    if (creating || !connected || !name.trim()) return
+    setCreating(true)
+    setMessage('')
+    try {
+      if (!await requestIdentity()) { setCreating(false); return }
+      const response = await fetch(appUrl('api/diagrams'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: name.trim() }),
+      })
+      if (!response.ok) throw new Error('Не удалось создать схему. Проверь соединение и попробуй ещё раз.')
+      const created: DiagramSummary = await response.json()
+      saveCatalog([...readCatalog(), created])
+      dialog.current?.close()
+      setCreating(false)
+      setName('')
+      await navigate(diagramUrl(created.id))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Не удалось создать схему')
+      setCreating(false)
+    }
+  }
+
   return <>
     <h1 className={`document-title${triggerContent ? ' document-title-file' : ''}`}>
       <button className={`diagram-trigger${triggerContent ? ' file-trigger' : ''}`} aria-label="Схемы" title={triggerContent ? undefined : `${trackerLabel(title, tracker?.trackerKey)} — выбрать схему`}
-        aria-haspopup="dialog" aria-expanded={open} onClick={() => { prepare(); setSection(tracker ? 'tracker' : 'diagrams'); dialog.current?.showModal(); setOpen(true) }}>
+        aria-haspopup="dialog" aria-expanded={open} aria-keyshortcuts="Control+O Meta+O" onClick={openPicker}>
         {triggerContent ?? <><span>{trackerLabel(title, tracker?.trackerKey)}</span><span aria-hidden="true">▾</span></>}
       </button>
     </h1>
-    <dialog ref={dialog} className="diagrams-dialog" aria-labelledby="diagrams-heading"
-      onCancel={event => { if (importing) event.preventDefault() }}
+    <dialog ref={dialog} className="diagrams-dialog management-dialog" aria-labelledby="diagrams-heading"
+      onCancel={event => { if (creating) event.preventDefault() }}
       onClose={() => { setOpen(false); if (!movingFocus.current) returnFocus(); movingFocus.current = false }}>
-      <div className="diagrams-heading"><h2 id="diagrams-heading">Схемы</h2>
-        <button className="icon-button" aria-label="Закрыть список схем" disabled={importing} onClick={() => dialog.current?.close()}>×</button>
+      <div ref={content} className="management-content">
+      <div className="diagrams-heading"><h2 id="diagrams-heading">Выбор схемы для редактирования</h2>
+        <button className="icon-button" aria-label="Закрыть список схем" disabled={creating} onClick={() => dialog.current?.close()}>×</button>
       </div>
-      <fieldset className="scheme-actions" disabled={creating || importing}>
-        <legend>Открытая схема</legend>
-        {actions(closeForAction)}
-      </fieldset>
-      <div className="catalog-sections" role="group" aria-label="Раздел каталога">
-        <button type="button" aria-pressed={section === 'diagrams'} disabled={creating || importing} onClick={() => setSection('diagrams')}>Схемы</button>
-        <button type="button" aria-pressed={section === 'tracker'} disabled={creating || importing} onClick={() => setSection('tracker')}>Задачи</button>
+      <section className="current-scheme" aria-label="Текущая схема">
+        <div className="current-scheme-heading">
+          <span className="storage-kind">{modeLabel}</span>
+          <p className="current-scheme-name">{currentName}</p>
+        </div>
+        <fieldset className="scheme-actions" disabled={creating}>{actions(closeForAction)}</fieldset>
+      </section>
+      <section className="open-scheme" aria-label="Открыть другую">
+      <div className="catalog-sections" role="tablist" aria-label="Раздел каталога">
+        {catalogSections.map((item, index) => <button key={item.id} ref={element => { tabs.current[item.id] = element ?? undefined }}
+          id={`catalog-tab-${item.id}`} type="button" role="tab" aria-selected={section === item.id}
+          aria-controls={`catalog-panel-${item.id}`} tabIndex={focusedSection === item.id ? 0 : -1} disabled={creating}
+          onFocus={() => setFocusedSection(item.id)} onClick={() => setSection(item.id)} onKeyDown={event => {
+            let next: number
+            if (event.key === 'ArrowRight') next = (index + 1) % catalogSections.length
+            else if (event.key === 'ArrowLeft') next = (index + catalogSections.length - 1) % catalogSections.length
+            else if (event.key === 'Home') next = 0
+            else if (event.key === 'End') next = catalogSections.length - 1
+            else return
+            event.preventDefault()
+            event.stopPropagation()
+            tabs.current[catalogSections[next].id]?.focus()
+          }}>{item.label}</button>)}
       </div>
+      <div id="catalog-panel-tracker" role="tabpanel" aria-labelledby="catalog-tab-tracker" hidden={section !== 'tracker'}>
       {open && section === 'tracker' && <TrackerList id={id} navigate={url => {
         dialog.current?.close()
         void navigate(url).catch(error => setMessage(String(error)))
       }} />}
+      </div>
+      <div id="catalog-panel-diagrams" role="tabpanel" aria-labelledby="catalog-tab-diagrams" hidden={section !== 'diagrams'}>
       {section === 'diagrams' && <>
-      {loading && <p role="status">Загружаем список…</p>}
-      {message && <p role="alert">{message}</p>}
-      <nav aria-label="Список схем" className="diagrams-list">
-        {items.map(item => <a key={item.id} href={diagramUrl(item.id)} aria-current={item.id === id ? 'page' : undefined}
-          onClick={event => {
-            if (importing) { event.preventDefault(); return }
-            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return
-            event.preventDefault()
-            dialog.current?.close()
-            void navigate(diagramUrl(item.id)).catch(error => setMessage(String(error)))
-          }}>
-          <span>{item.title}</span>{item.id === id && <small>Открыта</small>}
-        </a>)}
-      </nav>
-      <form className="diagram-create" onSubmit={async event => {
-        event.preventDefault()
-        if (creating || importingRef.current || !connected || !name.trim()) return
-        setCreating(true)
-        setMessage('')
-        try {
-          if (!await requestIdentity()) { setCreating(false); return }
-          const response = await fetch(appUrl('api/diagrams'), {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: name.trim() }),
-          })
-          if (!response.ok) throw new Error('Не удалось создать схему. Проверь соединение и попробуй ещё раз.')
-          const created: DiagramSummary = await response.json()
-          saveCatalog([...readCatalog(), created])
-          dialog.current?.close()
-          setCreating(false)
-          setName('')
-          await navigate(diagramUrl(created.id))
-        } catch (error) {
-          setMessage(error instanceof Error ? error.message : 'Не удалось создать схему')
-          setCreating(false)
-        }
-      }}>
-        <label htmlFor="diagram-name">Новая схема</label>
-        <div><input id="diagram-name" value={name} onChange={event => setName(event.target.value)}
-          placeholder="Название" maxLength={500} required disabled={creating || importing || !connected} />
-          <button type="submit" disabled={creating || importing || !connected || !name.trim()}>{creating ? 'Создаём…' : 'Создать'}</button>
+      <form className="diagram-create" autoComplete="off" noValidate onSubmit={event => event.preventDefault()}>
+        <div className="catalog-query"><input className="catalog-search-input" id="diagram-name" type="search" aria-label="Поиск или название новой схемы" value={name} onChange={event => setName(event.target.value)}
+          autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false}
+          onKeyDown={event => catalogSearchKeyDown(event, {
+            list: diagramList.current, createButton: createButton.current, loading,
+            openFirst: matchingItems.length ? () => openDiagram(diagramUrl(matchingItems[0].id)) : undefined,
+          })}
+          placeholder="Название схемы" maxLength={500} disabled={creating} />
+          <button ref={createButton} type="button" disabled={creating || !connected || !name.trim()}
+            onKeyDown={preventRepeatedEnter}
+            onClick={() => { void createDiagram() }}>{creating ? 'Создаём' : 'Создать'}</button>
         </div>
         {!connected && <p>Для создания схемы нужно соединение с сервером.</p>}
       </form>
+      {message && <p role="alert">{message}</p>}
+      {loading && <p role="status">Загружаем список…</p>}
+      <CatalogList ref={diagramList} label="Список схем" currentId={id} disabled={creating}
+        items={matchingItems.map(item => ({ ...item, href: diagramUrl(item.id) }))} navigate={openDiagram} />
+      {!loading && !matchingItems.length && <p role="status">{name.trim() ? 'Схемы не найдены.' : 'Сохранённых схем нет.'}</p>}
       </>}
-      <div className="diagram-import">
-        <button type="button" disabled={creating || importing} onClick={() => { closeForAction(); openFile() }}>Открыть файл…</button>{' '}
-        <input ref={fileInput} type="file" accept=".graphml" aria-label="Файл yEd GraphML" hidden onChange={event => {
-          const file = event.currentTarget.files?.[0]
-          event.currentTarget.value = ''
-          if (file) void importFile(file)
-        }} />
-        <button type="button" disabled={creating || importing || !connected} onClick={() => fileInput.current?.click()}>
-          {importing ? 'Импортируем…' : 'Импорт из yEd…'}
-        </button>
-        <p>GraphML: иерархия и порядок, до 1000 узлов и 5 МиБ. Откроется отдельная схема.</p>
+      </div>
+      <div id="catalog-panel-files" role="tabpanel" aria-labelledby="catalog-tab-files" hidden={section !== 'files'}>
+      {section === 'files' && <div className="file-choices">
+        <button type="button" aria-label="Открыть файл на диске" onClick={() => { closeForAction(); openFile('disk') }}>Открыть файл на диске<small>DECO · автосохранение в исходный файл</small></button>
+        <button type="button" aria-label="Новая схема из файла" disabled={!connected} onClick={() => { closeForAction(); openFile('new') }}>Новая схема из файла<small>DECO или GraphML · копия во внутреннем хранилище</small></button>
+        {!connected && <p>Для создания внутренней схемы нужно соединение с сервером.</p>}
+      </div>}
+      </div>
+      </section>
       </div>
     </dialog>
   </>

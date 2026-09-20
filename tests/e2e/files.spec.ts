@@ -20,12 +20,14 @@ const file = { format: 'decompose', version: 1, nodes: [
 ], settings: { textAlign: 'center' } }
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 const ready = (page: Page) => expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
-async function fileDialog(page: Page) {
+async function fileDialog(page: Page, mode: 'new' | 'replace' | 'disk' = 'new') {
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.getByRole('button', { name: 'Открыть файл…', exact: true }).click()
+  if (mode === 'replace') { await page.getByRole('button', { name: 'Заменить из файла', exact: true }).click(); return }
+  await page.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab', { name: 'Файлы', exact: true }).click()
+  await page.getByRole('button', { name: mode === 'disk' ? 'Открыть файл на диске' : 'Новая схема из файла', exact: true }).click()
 }
 async function upload(page: Page) {
-  await page.getByLabel('Файл дерево·дел').setInputFiles({ name: 'test.decompose.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) })
+  await page.getByLabel('Файл схемы', { exact: true }).setInputFiles({ name: 'test.deco', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) })
 }
 
 test('native file imports as a new diagram and exports the active draft, formatting and order', async ({ page }) => {
@@ -39,7 +41,7 @@ test('native file imports as a new diagram and exports the active draft, formatt
   const download = page.waitForEvent('download')
   await page.keyboard.press('Control+s')
   const exported = await download
-  expect(exported.suggestedFilename()).toBe('Draft в файле.decompose.json')
+  expect(exported.suggestedFilename()).toBe('Draft в файле.deco')
   const data = JSON.parse(await readFile((await exported.path())!, 'utf8'))
   expect(data.nodes.map((node: { text: string }) => node.text)).toEqual(['Draft в файле', 'Сохранённая\nкарточка'])
   expect(data.settings).toEqual({ textAlign: 'center' })
@@ -57,7 +59,7 @@ test('replacement drains online drafts, reloads peers, and quarantines an offlin
     await offlineContext.setOffline(true)
     await root(offline).dblclick(); await offline.getByRole('textbox').fill('Offline: не терять'); await offline.keyboard.press('Enter')
     await root(peer).dblclick(); await peer.getByRole('textbox').fill('Draft другого участника')
-    await fileDialog(page); await page.getByLabel('Заменить открытую схему').check(); await upload(page)
+    await fileDialog(page, 'replace'); await upload(page)
     await page.getByRole('button', { name: 'Заменить схему', exact: true }).click()
     for (const client of [page, peer]) {
       await expect(root(client)).toHaveAttribute('data-text', 'Файл схемы')
@@ -80,7 +82,7 @@ async function installFilePicker(page: Page, name = 'diagram-test.json') {
     const handle = await directory.getFileHandle(name, { create: true })
     const writer = await handle.createWritable(); await writer.write(contents); await writer.close()
     Object.assign(window, {
-      showOpenFilePicker: async () => [handle],
+      showOpenFilePicker: async (options: unknown) => { Object.assign(window, { openOptions: options }); return [handle] },
     })
   }, { contents: JSON.stringify(file), name })
 }
@@ -88,14 +90,117 @@ async function diskText(page: Page) {
   return page.evaluate(async () => (await (await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')).getFile()).text())
 }
 
+async function internalDialog(page: Page) {
+  await page.getByRole('button', { name: 'Схемы', exact: true }).click()
+  const current = page.getByRole('region', { name: 'Текущая схема' })
+  await expect(current).toContainText('Файл на диске')
+  await expect(current.getByRole('button')).toHaveText(['Поделиться сессией', 'Сохранить как внутреннюю', 'Скачать копию'])
+  await page.getByRole('button', { name: 'Сохранить как внутреннюю' }).click()
+}
+
+test('owner and guest download a copy directly without changing the file or ending sharing', async ({ page, browser }) => {
+  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  const localUrl = page.url(), invite = await shareDisk(page), contents = await diskText(page)
+  const context = await namedContext(browser)
+  try {
+    const guest = await context.newPage(); await guest.goto(invite); await ready(guest)
+    for (const client of [page, guest]) {
+      const url = client.url()
+      await client.getByRole('button', { name: 'Схемы', exact: true }).click()
+      const files = client.getByRole('tab', { name: 'Файлы', exact: true })
+      await expect(files).toHaveAttribute('aria-selected', 'true')
+      await expect(files).toBeFocused()
+      await client.getByRole('tab', { name: 'Схемы', exact: true }).click()
+      await client.keyboard.press('Escape')
+      await client.getByRole('button', { name: 'Схемы', exact: true }).click()
+      await expect(files).toHaveAttribute('aria-selected', 'true')
+      await expect(files).toBeFocused()
+      const download = client.waitForEvent('download')
+      await client.getByRole('button', { name: 'Скачать копию', exact: true }).click()
+      const copy = await download
+      expect(copy.suggestedFilename()).toBe('Файл схемы.deco')
+      expect(JSON.parse(await readFile((await copy.path())!, 'utf8')).nodes[0].text).toBe('Файл схемы')
+      await expect(client.getByRole('dialog')).toHaveCount(0)
+      await expect(client.locator('main')).toBeFocused()
+      expect(client.url()).toBe(url)
+      await expect(client.getByTestId('connection')).toHaveAttribute('data-connected', 'true')
+    }
+    expect(page.url()).toBe(localUrl)
+    expect(await diskText(page)).toBe(contents)
+    await expect(guest.getByRole('alert')).toHaveCount(0)
+  } finally { await context.close() }
+})
+
+test('disk to internal saves accepted shared edits, ends the room and disconnects from the intact file', async ({ page, browser }) => {
+  await page.goto('http://127.0.0.1:4183/decompose/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  const localUrl = page.url(), invite = await shareDisk(page)
+  const context = await namedContext(browser)
+  try {
+    const guest = await context.newPage(); await guest.goto(invite); await ready(guest)
+    await guest.getByRole('button', { name: 'Схемы', exact: true }).click()
+    await expect(guest.getByRole('region', { name: 'Текущая схема' }).getByRole('button')).toHaveText(['Скачать копию'])
+    await expect(guest.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab')).toHaveText(['Схемы', 'Задачи', 'Файл'])
+    await guest.getByRole('button', { name: 'Закрыть список схем' }).click()
+    await root(guest).dblclick(); await guest.getByRole('textbox', { name: 'Текст клеточки' }).fill('Принято от участника'); await guest.keyboard.press('Enter')
+    await expect(root(page)).toHaveAttribute('data-text', 'Принято от участника')
+    await internalDialog(page)
+    await page.getByRole('button', { name: 'Отмена', exact: true }).click()
+    expect(page.url()).toBe(localUrl)
+    await expect(guest.locator('.file-notice')).toHaveCount(0)
+    await internalDialog(page)
+    await page.getByRole('button', { name: 'Сохранить и перейти' }).click()
+    await expect(page).toHaveURL(/\/decompose\/diagram\/[\da-f-]{36}$/); await ready(page)
+    await expect(page.locator('.file-indicator')).toHaveCount(0)
+    await expect(root(page)).toHaveAttribute('data-text', 'Принято от участника')
+    await expect(root(page).locator('.cell-text')).toHaveCSS('text-align', 'center')
+    await expect(page.locator('[data-status="done"]')).toHaveCount(1)
+    await expect(guest.getByRole('alert')).toContainText('завершена')
+    expect(guest.url()).toBe(invite)
+    const saved = await diskText(page)
+    expect(JSON.parse(saved).nodes[0].text).toBe('Принято от участника')
+    await root(page).dblclick(); await page.getByRole('textbox', { name: 'Текст клеточки' }).fill('Только внутри'); await page.keyboard.press('Enter')
+    await page.keyboard.press('Control+s')
+    expect(await diskText(page)).toBe(saved)
+    await page.goto(localUrl); await ready(page)
+    await expect(root(page)).toHaveAttribute('data-text', 'Принято от участника')
+  } finally { await context.close() }
+})
+
+test('failed internal save keeps the disk editor and allows retry without losing data', async ({ page }) => {
+  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  const localUrl = page.url()
+  await page.route('**/api/diagrams/import', route => route.fulfill({ status: 503, json: { error: 'Сервер недоступен' } }))
+  await internalDialog(page); await page.getByRole('button', { name: 'Сохранить и перейти' }).click()
+  await expect(page.getByRole('alert')).toContainText('Сервер недоступен')
+  expect(page.url()).toBe(localUrl)
+  expect(JSON.parse(await diskText(page)).nodes[0].text).toBe('Файл схемы')
+  await page.unroute('**/api/diagrams/import')
+  await page.getByRole('button', { name: 'Сохранить и перейти' }).click()
+  await expect(page).toHaveURL(/\/diagram\/[\da-f-]{36}$/); await ready(page)
+  await expect(root(page)).toHaveAttribute('data-text', 'Файл схемы')
+})
+
+test('external file conflict prevents creating an internal copy', async ({ page }) => {
+  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  const localUrl = page.url(), before = await (await page.request.get('/api/diagrams')).json()
+  await page.evaluate(async () => {
+    const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
+    const writer = await handle.createWritable(); await writer.write('Внешние изменения'); await writer.close()
+  })
+  await internalDialog(page); await page.getByRole('button', { name: 'Сохранить и перейти' }).click()
+  await expect(page.getByRole('dialog', { name: 'Сохранить как внутреннюю схему' }).getByRole('alert')).toBeVisible()
+  expect(page.url()).toBe(localUrl)
+  expect(await diskText(page)).toBe('Внешние изменения')
+  expect(await (await page.request.get('/api/diagrams')).json()).toEqual(before)
+})
+
 test('disk mode writes the original file, shares in memory, pauses guests and never caches content', async ({ page, browser }) => {
   const sockets: string[] = []
   page.on('websocket', socket => sockets.push(socket.url()))
   await page.goto('http://127.0.0.1:4183/decompose/'); await ready(page); await installFilePicker(page)
   const cachesBefore = await page.evaluate(async () => (await indexedDB.databases()).map(db => db.name).filter(name => name?.startsWith('decompose:')))
   const catalogBefore = await (await page.request.get('/api/diagrams')).json()
-  await fileDialog(page); await page.getByLabel('Редактировать файл на диске').check()
-  await page.getByRole('button', { name: 'Выбрать файл…' }).click()
+  await fileDialog(page, 'disk')
   await expect(root(page)).toHaveAttribute('data-text', 'Файл схемы')
   expect(page.url()).toMatch(/\/file\/local\/[\da-f-]{36}/)
   const localUrl = page.url()
@@ -195,7 +300,7 @@ test('external file modification stops autosave and leaving offers a non-browser
 })
 
 test('disk mode stays visible in a compact header with a long filename and on a narrow screen', async ({ page }) => {
-  const name = `${'Длинное имя файла '.repeat(5)}.decompose.json`
+  const name = `${'Длинное имя файла '.repeat(5)}.deco`
   await page.goto('/'); await ready(page); await installFilePicker(page, name)
   const normalStyle = await page.locator('.diagram-trigger').evaluate(element => {
     const style = getComputedStyle(element)
@@ -207,6 +312,9 @@ test('disk mode stays visible in a compact header with a long filename and on a 
   expect(normalStyle.radius).toBe('4px')
   expect(normalStyle.background).toBe('rgba(0, 0, 0, 0)')
   await openDisk(page)
+  expect(await page.evaluate(() => (window as unknown as { openOptions: unknown }).openOptions)).toMatchObject({
+    multiple: false, types: [{ accept: { 'application/json': ['.deco', '.json'] } }],
+  })
   const fileStyle = await page.locator('.file-indicator').evaluate(element => {
     const style = getComputedStyle(element)
     return { font: style.font, borderWidth: style.borderTopWidth, borderStyle: style.borderTopStyle,
@@ -258,7 +366,7 @@ test('disk mode stays visible in a compact header with a long filename and on a 
     if (width > 700) expect(Math.abs(metrics.brand - metrics.mode)).toBeLessThan(0.5)
     else expect(Math.abs(metrics.badgeCenter - metrics.actionCenter)).toBeLessThan(0.5)
     await page.locator('.file-mode').click()
-    await expect(page.getByRole('dialog', { name: 'Схемы', exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })).toBeVisible()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await page.keyboard.press('Escape')
     await expect(page.locator('main')).toBeFocused()
@@ -266,7 +374,7 @@ test('disk mode stays visible in a compact header with a long filename and on a 
   }
   await trigger.focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('dialog', { name: 'Схемы', exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.screenshot({ path: 'test-results/file-header-mobile.png' })
   await page.setViewportSize({ width: 1280, height: 720 })
@@ -290,10 +398,61 @@ test('an active file draft warns before unload and a hard reload reopens the sam
 })
 
 async function openDisk(page: Page) {
-  await fileDialog(page); await page.getByLabel('Редактировать файл на диске').check()
-  await page.getByRole('button', { name: 'Выбрать файл…' }).click()
+  await fileDialog(page, 'disk')
   await expect(page).toHaveURL(/\/file\/local\/[\da-f-]{36}/); await ready(page)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 }
+
+test('disk selection starts directly from the menu; cancellation and errors leave the current scheme focused', async ({ page }) => {
+  await page.goto('/'); await ready(page)
+  const url = page.url()
+  await root(page).click()
+  await page.evaluate(() => Object.assign(window, {
+    pickerCalls: 0,
+    showOpenFilePicker: async () => {
+      const probe = window as unknown as { pickerCalls: number; pickerGesture: boolean; pickerModal: boolean }
+      probe.pickerCalls++; probe.pickerGesture = navigator.userActivation.isActive
+      probe.pickerModal = !!document.querySelector('dialog[open]')
+      throw new DOMException('Отмена', 'AbortError')
+    },
+  }))
+  await fileDialog(page, 'disk')
+  expect(await page.evaluate(() => {
+    const probe = window as unknown as { pickerCalls: number; pickerGesture: boolean; pickerModal: boolean }
+    return [probe.pickerCalls, probe.pickerGesture, probe.pickerModal]
+  })).toEqual([1, true, false])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.locator('.canvas')).toBeFocused()
+  expect(page.url()).toBe(url)
+
+  await page.evaluate(() => Object.assign(window, { showOpenFilePicker: async () => { throw new Error('Файл недоступен') } }))
+  await fileDialog(page, 'disk')
+  await expect(page.getByRole('alert')).toContainText('Файл недоступен')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.canvas')).toBeFocused()
+  expect(page.url()).toBe(url)
+  await installFilePicker(page); await openDisk(page)
+  await expect(root(page)).toHaveAttribute('data-text', 'Файл схемы')
+})
+
+test('a late native selection cannot replace a scheme opened in the meantime', async ({ page }) => {
+  await page.goto('/'); await ready(page); await installFilePicker(page)
+  const { id } = await (await page.request.post('/api/diagrams', { data: { title: 'Другая схема' } })).json()
+  await page.evaluate(() => {
+    const picker = (window as unknown as { showOpenFilePicker: () => Promise<unknown> }).showOpenFilePicker
+    Object.assign(window, { showOpenFilePicker: () => new Promise(resolve => {
+      Object.assign(window, { completePicker: async () => resolve(await picker()) })
+    }) })
+  })
+  await fileDialog(page, 'disk')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.evaluate(id => { history.pushState(null, '', `/diagram/${id}`); dispatchEvent(new PopStateEvent('popstate')) }, id)
+  await expect(root(page)).toHaveAttribute('data-text', 'Другая схема')
+  await page.evaluate(async () => { await (window as unknown as { completePicker: () => Promise<void> }).completePicker() })
+  await expect(page).toHaveURL(new RegExp(`/diagram/${id}$`))
+  await expect(page.locator('.file-indicator')).toHaveCount(0)
+})
 async function shareDisk(page: Page) {
   const ownerUrl = page.url()
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
@@ -396,7 +555,7 @@ for (const base of ['http://127.0.0.1:4173/', 'http://127.0.0.1:4183/decompose/'
 test('legacy file placeholders keep the selection recovery screen on the canonical path', async ({ page }) => {
   await page.goto('/?localFile=1')
   await expect(page).toHaveURL(/\/file\/local\/1$/)
-  await expect(page.getByRole('button', { name: 'Открыть файл на диске…' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Открыть файл на диске' })).toBeVisible()
 })
 
 test('owner keeps its local URL and resumes the same room and CRDT with and without guests', async ({ page, browser }) => {
@@ -437,7 +596,7 @@ test('a second tab is a guest on the shared URL and cannot open the same file fo
     await other.evaluate(async () => {
       Object.assign(window, { showOpenFilePicker: async () => [await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')] })
     })
-    await other.getByRole('button', { name: 'Открыть файл на диске…' }).click()
+    await other.getByRole('button', { name: 'Открыть файл на диске' }).click()
     await expect(other.getByRole('alert')).toContainText('другой вкладке')
     const sharedUrl = await shareDisk(page)
     await other.goto(sharedUrl); await ready(other)
@@ -448,7 +607,7 @@ test('a second tab is a guest on the shared URL and cannot open the same file fo
     const arrow = (await other.locator('.file-menu-arrow').boundingBox())!
     expect(arrow.x + arrow.width).toBeLessThanOrEqual(title.x + title.width)
     await other.locator('.file-mode').click()
-    await expect(other.getByRole('dialog', { name: 'Схемы', exact: true })).toBeVisible()
+    await expect(other.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })).toBeVisible()
     await other.keyboard.press('Escape')
     await root(other).dblclick(); await other.getByRole('textbox').fill('Из второй вкладки'); await other.keyboard.press('Enter')
     await expect.poll(() => diskText(page)).toContain('Из второй вкладки')
@@ -622,7 +781,7 @@ test('explicitly picking an externally changed file replaces only the inactive g
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
     Object.assign(window, { showOpenFilePicker: async () => [handle] })
   })
-  await page.getByRole('button', { name: 'Открыть файл на диске…' }).click(); await ready(page)
+  await page.getByRole('button', { name: 'Открыть файл на диске' }).click(); await ready(page)
   expect(page.url()).toBe(localUrl)
   expect(await shareDisk(page)).toBe(invite)
   await expect(root(page)).toHaveAttribute('data-text', 'Явно выбранная внешняя версия')
@@ -665,13 +824,13 @@ test('missing files and cleared handle storage offer file selection without crea
   await page.evaluate(async () => (await navigator.storage.getDirectory()).removeEntry('diagram-test.json'))
   await page.reload()
   await expect(page.getByRole('alert')).toContainText('Файл перемещён или удалён')
-  await expect(page.getByRole('button', { name: 'Открыть файл на диске…' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Открыть файл на диске' })).toBeVisible()
   await page.evaluate(() => new Promise<void>((resolve, reject) => {
     const request = indexedDB.deleteDatabase('decompose-file-handles-v1')
     request.onsuccess = () => resolve(); request.onerror = () => reject(request.error)
   }))
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Открыть файл на диске…' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Открыть файл на диске' })).toBeVisible()
   await expect(page.locator('[data-cell-id]')).toHaveCount(0)
   const catalog = await (await page.request.get('/api/diagrams')).json()
   expect(catalog).toEqual(catalogBefore)

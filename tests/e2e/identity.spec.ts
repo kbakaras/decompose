@@ -148,7 +148,7 @@ test('creating a diagram requires a name and browser navigation cancels a pendin
   let posts = 0
   page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/api/diagrams')) posts++ })
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.getByLabel('Новая схема', { exact: true }).fill('Создана после знакомства')
+  await page.getByLabel('Поиск или название новой схемы', { exact: true }).fill('Создана после знакомства')
   await page.getByRole('button', { name: 'Создать', exact: true }).click()
   await expect(profile(page)).toBeVisible()
   expect(posts).toBe(0)
@@ -166,7 +166,7 @@ test('creating a diagram requires a name and browser navigation cancels a pendin
   await ready(page)
   await expect(root(page)).toHaveAttribute('data-text', 'После перехода')
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
-  await page.getByLabel('Новая схема', { exact: true }).fill('Создана после знакомства')
+  await page.getByLabel('Поиск или название новой схемы', { exact: true }).fill('Создана после знакомства')
   await page.getByRole('button', { name: 'Создать', exact: true }).click()
   await page.getByLabel('Имя', { exact: true }).fill('Григорий')
   await page.keyboard.press('Enter')
