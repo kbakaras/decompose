@@ -1,3 +1,4 @@
+import { testDiagram } from './fixtures'
 import { test, expect } from '@playwright/test'
 
 // Это настоящий insecure origin, а не localhost с подменённым randomUUID.
@@ -11,7 +12,7 @@ test('HTTP on a custom hostname supports UUIDs, same-origin API, collaboration a
   page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) apiUrls.push(request.url()) })
   page.on('websocket', socket => socketUrls.push(socket.url()))
-  await page.goto(`${origin}/`)
+  await page.goto((await testDiagram(page)).replace('http://127.0.0.1:4173', origin))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   expect(await page.evaluate(() => ({ secure: isSecureContext, randomUUID: typeof crypto.randomUUID,
     getRandomValues: typeof crypto.getRandomValues }))).toEqual({ secure: false, randomUUID: 'undefined', getRandomValues: 'function' })

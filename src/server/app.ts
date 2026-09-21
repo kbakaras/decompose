@@ -229,10 +229,8 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     collaboration,
     fileRooms,
     async listen(port = 3000, host = '127.0.0.1') {
-      // Проверяем SQLite до приёма клиентов и создаём root единственным серверным writer.
+      // Проверяем SQLite до приёма клиентов; документы создаются только явным действием.
       await storage.onConfigure()
-      const initial = await collaboration.openDirectConnection(storage.currentName('main'))
-      await initial.disconnect()
       await new Promise<void>((resolveListen, reject) => {
         server.once('error', reject)
         server.listen(port, host, () => {

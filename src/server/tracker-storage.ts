@@ -34,7 +34,17 @@ export class TrackerStorage extends SQLite {
   constructor(database: string) { super({ database, schema: `${schema};${trackerSchema}` }) }
 
   private configured?: Promise<void>
-  override onConfigure(): Promise<void> { return this.configured ??= super.onConfigure() }
+  override onConfigure(): Promise<void> {
+    return this.configured ??= super.onConfigure().then(() => {
+      // Удаляем только прежний стартовый документ; он больше не является допустимой схемой.
+      this.db!.transaction(() => {
+        this.db!.prepare('DELETE FROM tracker_diagrams WHERE document_id = ?').run('main')
+        this.db!.prepare('DELETE FROM documents WHERE name = ?').run('main')
+        this.db!.prepare('DELETE FROM document_generations WHERE name = ?').run('main')
+        this.db!.prepare('DELETE FROM deleted_documents WHERE id = ?').run('main')
+      })()
+    })
+  }
 
   fileSessionHash(id: string): string | undefined {
     return (this.db!.prepare('SELECT secret_hash FROM file_sessions WHERE id = ?').get(id) as { secret_hash: string } | undefined)?.secret_hash
@@ -59,7 +69,6 @@ export class TrackerStorage extends SQLite {
   }
 
   remove(id: string, expected: number, operation: string): DeletedDocument {
-    if (id === 'main') throw new StorageConflict('Основную схему удалять нельзя.')
     return this.db!.transaction(() => {
       const previous = this.deleted(id)
       if (previous && previous.operation === operation) return previous
@@ -80,7 +89,6 @@ export class TrackerStorage extends SQLite {
   }
 
   override async onLoadDocument({ documentName: name, document }: onLoadDocumentPayload) {
-    if (name === 'main' && this.generation('main') === 0 && !this.db!.prepare('SELECT 1 FROM documents WHERE name = ?').get('main')) return
     if (!this.accepts(name)) throw new Error('Устаревшее поколение документа')
     const { id } = parseDocumentName(name)!
     const row = this.db!.prepare('SELECT data FROM documents WHERE name = ?').get(id) as { data: Buffer }

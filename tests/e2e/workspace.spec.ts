@@ -1,7 +1,8 @@
+import { testDiagram } from './fixtures'
 import { test, expect, namedContext, type Page } from './fixtures'
 
 async function open(page: Page) {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   await expect(page.getByTestId('connection')).toHaveAttribute('data-connected', 'true')
 }

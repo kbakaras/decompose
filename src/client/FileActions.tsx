@@ -9,9 +9,9 @@ import { readYedFile } from './yed-import'
 export type FileAction = 'new' | 'replace'
 export interface FileActionsHandle { open(mode: FileAction): void }
 
-export function FileActions({ ref, returnFocus, reportError, session, title, navigate, requestIdentity }: {
+export function FileActions({ ref, returnFocus, reportError, session, title = '', navigate, requestIdentity }: {
   ref: Ref<FileActionsHandle>; returnFocus: () => void; reportError: (message: string | null) => void
-  session: Session; title: string; navigate: (href: string) => Promise<void>
+  session?: Session; title?: string; navigate: (href: string) => Promise<void>
   requestIdentity: () => Promise<boolean>
 }) {
   const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null)
@@ -35,7 +35,7 @@ export function FileActions({ ref, returnFocus, reportError, session, title, nav
     return () => clearTimeout(timer)
   }, [busy])
   useImperativeHandle(ref, () => ({ open(action) {
-    if (running.current || !navigator.onLine || action === 'replace' && !session.connected) { returnFocus(); return }
+    if (running.current || !navigator.onLine || action === 'replace' && !session?.connected) { returnFocus(); return }
     mode.current = action; setFile(null); setError(''); reportError(null)
     // Системный выбор запускается из исходного click, а не из эффекта React.
     input.current?.click()
@@ -56,6 +56,7 @@ export function FileActions({ ref, returnFocus, reportError, session, title, nav
     } finally { running.current = false; setBusy(false); returnFocus() }
   }
   async function importFile(value: DiagramFile, action: FileAction) {
+    if (action === 'replace' && !session) return
     running.current = true; setBusy(true); setError('')
     try {
       dialog.current?.close()
@@ -63,9 +64,9 @@ export function FileActions({ ref, returnFocus, reportError, session, title, nav
       lifetime.current?.signal.throwIfAborted()
       if (action === 'replace') dialog.current?.showModal()
       if (!accepted) return
-      const response = await fetch(appUrl(action === 'replace' ? 'api/diagrams/' + session.id + '/replace' : 'api/diagrams/import'), {
+      const response = await fetch(appUrl(action === 'replace' ? 'api/diagrams/' + session!.id + '/replace' : 'api/diagrams/import'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action === 'replace' ? { generation: session.generation, file: value } : value),
+        body: JSON.stringify(action === 'replace' ? { generation: session!.generation, file: value } : value),
         signal: AbortSignal.any([AbortSignal.timeout(30000), ...(lifetime.current ? [lifetime.current.signal] : [])]),
       })
       const result = await response.json()
@@ -89,7 +90,7 @@ export function FileActions({ ref, returnFocus, reportError, session, title, nav
         if (selected) void selectFile(selected); else returnFocus()
       }} />
     {showProgress && busy && !file && <div className="navigation-notice" role="status">Загружаем файл…</div>}
-    <dialog ref={dialog} className="diagrams-dialog file-dialog" aria-label="Заменить содержимое схемы"
+    {session && <dialog ref={dialog} className="diagrams-dialog file-dialog" aria-label="Заменить содержимое схемы"
       onClose={returnFocus} onCancel={event => { if (busy) event.preventDefault(); else setFile(null) }}>
       <h2>Заменить содержимое схемы</h2>
       <p>Заменить «{title}» содержимым «{fileName}»? Адрес и привязка к задаче сохранятся.</p>
@@ -98,6 +99,6 @@ export function FileActions({ ref, returnFocus, reportError, session, title, nav
       <button disabled={busy || !file} onClick={() => { if (file && !running.current) void importFile(file, 'replace') }}>{busy ? 'Ожидаем синхронизацию' : 'Заменить схему'}</button>
       {error && <p role="alert">{error}</p>}
       <button disabled={busy} onClick={() => setFile(null)}>Отмена</button>
-    </dialog>
+    </dialog>}
   </>
 }

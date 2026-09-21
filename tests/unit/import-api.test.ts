@@ -26,7 +26,7 @@ it('imports atomically, revalidates untrusted input, enforces route-specific lim
     expect((await post({ nodes: [{ ...node('a'), text: 'x'.repeat(1024 * 1024) }] })).status).toBe(413)
     expect((await post({ title: 'x'.repeat(17 * 1024) }, '/api/diagrams')).status).toBe(413)
     expect((await fetch(`${url}/api/diagrams/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' })).status).toBe(400)
-    expect(await (await fetch(`${url}/api/diagrams`)).json()).toHaveLength(1)
+    expect(await (await fetch(`${url}/api/diagrams`)).json()).toHaveLength(0)
     const source = { nodes: [node('a', ['b', 'c']), { ...node('b'), text: 'x'.repeat(20000), status: 'done' }, node('c')] }
     const response = await post(source)
     expect(response.status).toBe(201)
@@ -47,9 +47,6 @@ it('imports atomically, revalidates untrusted input, enforces route-specific lim
     const restored = await backend.collaboration.openDirectConnection(created.id)
     expect(projectTree(restored.document!)).toEqual(tree)
     await restored.disconnect()
-    expect(await (await fetch(`${url}/api/diagrams`)).json()).toHaveLength(3)
-    const main = await backend.collaboration.openDirectConnection('main')
-    expect(projectTree(main.document!).nodes.size).toBe(1)
-    await main.disconnect()
+    expect(await (await fetch(`${url}/api/diagrams`)).json()).toHaveLength(2)
   } finally { await backend.close(); await rm(dataDir, { recursive: true, force: true }) }
 }, 30000)

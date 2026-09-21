@@ -1,7 +1,8 @@
+import { testDiagram } from './fixtures'
 import { expect, test } from './fixtures'
 
 test('brand and diagram title share a text baseline without shifting toolbar icons', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   for (const width of [1280, 844, 701, 375]) {
     await page.setViewportSize({ width, height: 720 })
@@ -33,7 +34,7 @@ test('brand and diagram title share a text baseline without shifting toolbar ico
 })
 
 test('one compact header leaves all remaining space to the canvas on desktop and small screens', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   await expect(page.getByRole('link', { name: 'дерево·дел', exact: true })).toBeVisible()
   await expect(page.locator('.brand-name')).toHaveText('дерево·дел')
@@ -93,7 +94,7 @@ test('one compact header leaves all remaining space to the canvas on desktop and
 })
 
 test('errors remain visible and dismissible without a status bar', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   await page.locator('[data-cell-id="root"]').click()
   await page.keyboard.press('Enter')

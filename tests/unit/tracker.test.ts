@@ -14,7 +14,7 @@ it('normalizes tracker keys and routes without treating malformed paths as main'
     expect(normalizeTrackerKey(value)).toBeNull()
   }
   expect(parseDiagramRoute(new URL('http://localhost/tracker/mc-99636?diagram=main'))).toEqual({ kind: 'tracker', key: 'MC-99636' })
-  expect(parseDiagramRoute(new URL('http://localhost/'))).toEqual({ kind: 'diagram', id: 'main' })
+  expect(parseDiagramRoute(new URL('http://localhost/'))).toEqual({ kind: 'home' })
   for (const path of ['/tracker/', '/tracker/A-1/extra', '/tracker/A%2F-1', '/tracker/%XX', '/unknown']) {
     expect(() => parseDiagramRoute(new URL(path, 'http://localhost'))).toThrow()
   }
@@ -40,7 +40,7 @@ it('creates exactly one durable tracker document and derives its title from the 
     expect(new Set(items.map(item => item.id)).size).toBe(1)
     const task = items[0]
     expect(task.title).toBe('MC-99636')
-    expect(await get('/api/diagrams')).toEqual([{ id: 'main', title: 'Новая декомпозиция' }])
+    expect(await get('/api/diagrams')).toEqual([])
     const live = await backend.collaboration.openDirectConnection(task.id)
     expect(projectTree(live.document!).nodes.get(ROOT_ID)?.text).toBe('MC-99636')
     const commands = new TreeCommands(live.document!)

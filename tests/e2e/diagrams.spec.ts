@@ -1,3 +1,4 @@
+import { testDiagram } from './fixtures'
 import { expect, test, namedContext, type Page } from './fixtures'
 
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
@@ -15,7 +16,7 @@ async function newDiagram(page: Page, title: string) {
 }
 
 test('create, switch, share and rename diagrams without mixing data, presence or undo', async ({ page, browser }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   const legacyTitle = await root(page).getAttribute('data-text')
   const legacyCount = await page.locator('[data-cell-id]').count()
@@ -58,7 +59,7 @@ test('create, switch, share and rename diagrams without mixing data, presence or
     await page.goBack()
     await ready(page)
     await expect(root(page)).toHaveAttribute('data-text', 'Название из корня')
-    await page.goto('/')
+    await page.goto(await testDiagram(page))
     await ready(page)
     await expect(root(page)).toHaveAttribute('data-text', legacyTitle!)
     await expect(page.locator('[data-cell-id]')).toHaveCount(legacyCount)
@@ -66,7 +67,7 @@ test('create, switch, share and rename diagrams without mixing data, presence or
 })
 
 test('closing the picker and file dialogs returns keyboard commands to the active cell', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   await newDiagram(page, 'Проверка фокуса')
   await page.keyboard.press('Tab')
@@ -108,7 +109,7 @@ test('closing the picker and file dialogs returns keyboard commands to the activ
 })
 
 test('offline diagram links and cached list stay isolated; branding and invalid links work', async ({ page, context }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   const a = await newDiagram(page, 'Offline A')
   const b = await newDiagram(page, 'Offline B')
@@ -181,5 +182,5 @@ test('offline diagram links and cached list stay isolated; branding and invalid 
   await expect(page.getByRole('alert')).toContainText('Схема не найдена')
   await expect(page.locator('[data-cell-id]')).toHaveCount(0)
   await page.goto('/?diagram=invalid')
-  await expect(page.getByRole('alert')).toContainText('Некорректная ссылка')
+  await expect(page.getByRole('alert')).toContainText('ссылка некорректна')
 })

@@ -1,3 +1,4 @@
+import { createTestDiagram } from './helpers'
 import { expect, it } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,13 +9,14 @@ import { createBackend } from '../../src/server/app'
 import { getStructures, projectTree, ROOT_ID, TreeCommands } from '../../src/domain'
 import { isDiagramId, type DiagramSummary } from '../../src/shared/diagrams'
 
-it('creates isolated durable diagrams, lists live root titles and preserves main across restart', async () => {
+it('creates isolated durable diagrams, lists live root titles and preserves independent documents across restart', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'decompose-diagrams-'))
   let backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
   try {
     let port = await backend.listen(0)
     let url = `http://127.0.0.1:${port}`
-    const legacy = await backend.collaboration.openDirectConnection('main')
+    const legacyId = await createTestDiagram(url)
+    const legacy = await backend.collaboration.openDirectConnection(legacyId)
     const legacyChild = new TreeCommands(legacy.document!).createChild(ROOT_ID, 'Прежние данные')
     await legacy.disconnect()
     for (const body of [{}, { title: '' }, { title: '   ' }, { title: 12 }, { title: 'я'.repeat(501) }]) {
@@ -51,7 +53,7 @@ it('creates isolated durable diagrams, lists live root titles and preserves main
     const restored = await backend.collaboration.openDirectConnection(created[0].id)
     expect(projectTree(restored.document!).nodes.get(child)?.text).toBe('Только первая схема')
     await restored.disconnect()
-    const main = await backend.collaboration.openDirectConnection('main')
+    const main = await backend.collaboration.openDirectConnection(legacyId)
     expect(projectTree(main.document!).nodes.get(legacyChild)?.text).toBe('Прежние данные')
     expect(projectTree(main.document!).nodes.has(child)).toBe(false)
     await main.disconnect()
@@ -66,7 +68,7 @@ it('rejects unknown WebSocket document names without implicitly creating a diagr
   const backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
   try {
     const port = await backend.listen(0)
-    for (const name of [randomUUID(), 'unknown']) {
+    for (const name of [randomUUID(), 'unknown', 'main', 'main~1']) {
       const socket = new HocuspocusProviderWebsocket({ url: `ws://127.0.0.1:${port}/collaboration`, WebSocketPolyfill: WebSocket })
       let reason = ''
       const provider = new HocuspocusProvider({ websocketProvider: socket, name, onAuthenticationFailed: event => { reason = event.reason } })
@@ -75,8 +77,7 @@ it('rejects unknown WebSocket document names without implicitly creating a diagr
       finally { provider.destroy(); socket.destroy(); provider.document.destroy() }
     }
     const list = await (await fetch(`http://127.0.0.1:${port}/api/diagrams`)).json()
-    expect(list).toHaveLength(1)
-    expect(list[0].id).toBe('main')
+    expect(list).toEqual([])
   } finally {
     await backend.close()
     await rm(dataDir, { recursive: true, force: true })
@@ -90,14 +91,15 @@ it('removes awareness immediately when a reconnected client leaves without sendi
   let provider: HocuspocusProvider | undefined
   try {
     const port = await backend.listen(0)
+    const id = await createTestDiagram(`http://127.0.0.1:${port}`)
     socket = new HocuspocusProviderWebsocket({ url: `ws://127.0.0.1:${port}/collaboration`, WebSocketPolyfill: WebSocket })
-    provider = new HocuspocusProvider({ websocketProvider: socket, name: 'main' })
+    provider = new HocuspocusProvider({ websocketProvider: socket, name: id })
     provider.attach()
     const clientId = provider.document.clientID
     provider.setAwarenessField('user', { id: 'stable-browser-id', name: 'Анна' })
-    await expect.poll(() => backend.collaboration.documents.get('main')?.awareness.getStates().has(clientId), { timeout: 5000 }).toBe(true)
+    await expect.poll(() => backend.collaboration.documents.get(id)?.awareness.getStates().has(clientId), { timeout: 5000 }).toBe(true)
     // Удерживаем уже загруженный сокетом документ, чтобы между reconnect не сбрасывалась Awareness metadata.
-    const witness = await backend.collaboration.openDirectConnection('main')
+    const witness = await backend.collaboration.openDirectConnection(id)
     try {
       for (let cycle = 0; cycle < 3; cycle++) {
         await expect.poll(() => witness.document!.awareness.getStates().has(clientId), { timeout: 5000 }).toBe(true)

@@ -5,7 +5,7 @@ import { appUrl } from './app-url'
 import { CatalogList, type CatalogListHandle } from './CatalogList'
 import { catalogSearchKeyDown, preventRepeatedEnter } from './catalog-search'
 
-export function TrackerList({ id, navigate }: { id: string; navigate: (url: string) => void }) {
+export function TrackerList({ id, navigate }: { id?: string; navigate: (url: string) => void }) {
   const list = useRef<CatalogListHandle>(null)
   const createButton = useRef<HTMLButtonElement>(null)
   const [query, setQuery] = useState('')

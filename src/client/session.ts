@@ -27,7 +27,7 @@ async function serverGeneration(id: string, signal?: AbortSignal) {
   return generation as number
 }
 
-export async function openSession(id = 'main', signal?: AbortSignal, tracker?: TrackerSummary, acceptLatest = false): Promise<Session> {
+export async function openSession(id: string, signal?: AbortSignal, tracker?: TrackerSummary, acceptLatest = false): Promise<Session> {
   if (!isDiagramId(id)) throw new Error('Некорректная ссылка на схему')
   browserIdentity(); tracker ??= readTrackerCatalog().find(item => item.id === id)
   const cached = cachedGeneration(id)
@@ -51,7 +51,7 @@ export async function openSession(id = 'main', signal?: AbortSignal, tracker?: T
       rememberDeletion(deletion); await persistence.destroy(); await clearDeletedContent(deletion)
       throw new DiagramDeleted(deletion)
     }
-    if (!deletion && id !== 'main' && !getStructures(doc).nodes.has(ROOT_ID)) {
+    if (!deletion && !getStructures(doc).nodes.has(ROOT_ID)) {
       const response = await fetch(appUrl(`api/diagrams/${id}`), { cache: 'no-store', signal })
       if (!response.ok) throw new Error(response.status === 404 ? 'Схема не найдена' : 'Сервер не смог открыть схему')
       const summary: unknown = await response.json()

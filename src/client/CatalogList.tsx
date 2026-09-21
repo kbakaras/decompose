@@ -6,7 +6,7 @@ export function CatalogList({ ref, label, items, currentId, disabled = false, na
   ref?: Ref<CatalogListHandle>
   label: string
   items: { id: string; title: string; href: string }[]
-  currentId: string
+  currentId?: string
   disabled?: boolean
   navigate: (href: string) => void
 }) {

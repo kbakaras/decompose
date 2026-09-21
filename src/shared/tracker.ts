@@ -12,7 +12,7 @@ export function normalizeTrackerKey(value: unknown): string | null {
 export function isTrackerSummary(value: unknown): value is TrackerSummary {
   if (!value || typeof value !== 'object') return false
   const item = value as TrackerSummary
-  return isDiagramId(item.id) && item.id !== 'main' && typeof item.title === 'string'
+  return isDiagramId(item.id) && typeof item.title === 'string'
     && typeof item.trackerKey === 'string' && normalizeTrackerKey(item.trackerKey) === item.trackerKey
     && Number.isSafeInteger(item.updatedAt) && item.updatedAt >= 0
 }

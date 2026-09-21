@@ -53,3 +53,11 @@ export function sequentialIds(prefix: string): () => string {
   let counter = 0
   return () => `${prefix}-${String(counter++).padStart(4, '0')}`
 }
+
+export async function createTestDiagram(url: string, title = 'Тестовая схема'): Promise<string> {
+  const response = await fetch(`${url}/api/diagrams`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+  })
+  if (!response.ok) throw new Error(`Не удалось создать тестовую схему: ${response.status}`)
+  return (await response.json()).id
+}

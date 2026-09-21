@@ -51,8 +51,7 @@ export class Replacements {
     lock.fail(new ReplacementError(message))
   }
   private async begin(id: string, generation: number, operation: string, kind: Kind) {
-    if (!Number.isSafeInteger(generation) || generation < 0 || !isDiagramId(operation) || operation === 'main') throw new ReplacementError('Некорректные параметры операции', 400)
-    if (kind !== 'replace' && id === 'main') throw new ReplacementError('Основную схему удалять нельзя.')
+    if (!isDiagramId(id) || !Number.isSafeInteger(generation) || generation < 0 || !isDiagramId(operation)) throw new ReplacementError('Некорректные параметры операции', 400)
     const name = documentName(id, generation)
     if (!this.storage.accepts(name)) throw new ReplacementError('Схема не найдена, удалена или уже заменена.')
     const previous = this.locks.get(name)

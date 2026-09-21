@@ -1,3 +1,4 @@
+import { createTestDiagram } from './helpers'
 import { expect, it } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -43,11 +44,11 @@ async function fixture() {
   } }
 }
 
-it('protects main, deletes a tracker tree permanently and requires explicit recreation with a new ID', async () => {
+it('rejects obsolete IDs, deletes a tracker tree permanently and requires explicit recreation with a new ID', async () => {
   const f = await fixture()
   const remove = (id: string, operation: string) => fetch(`${f.url}/api/diagrams/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ generation: 0, operation }) })
   try {
-    expect((await remove('main', uuid())).status).toBe(409)
+    expect((await remove('main', uuid())).status).toBe(400)
     expect((await fetch(f.url + '/api/diagrams/main', { method: 'DELETE' })).status).toBe(400)
     const { id } = await (await f.post('/api/tracker/REMOVE-1', {})).json()
     const client = f.connect(id)
@@ -182,13 +183,14 @@ it('replacement drains all clients, preserves the URL and tracker binding, and r
 it('times out an unresponsive participant without replacing the document', async () => {
   const f = await fixture()
   try {
-    const client = f.connect('main')
+    const id = await createTestDiagram(f.url)
+    const client = f.connect(id)
     await expect.poll(() => client.provider.synced).toBe(true)
-    const pending = f.post('/api/diagrams/main/replace', { generation: 0, file })
+    const pending = f.post(`/api/diagrams/${id}/replace`, { generation: 0, file })
     await expect.poll(() => client.messages.some(m => m.type === 'replace-prepare')).toBe(true)
-    const late = f.connect('main'); await expect.poll(late.denied).toBe(true)
+    const late = f.connect(id); await expect.poll(late.denied).toBe(true)
     expect((await pending).status).toBe(409)
-    expect(await (await fetch(f.url + '/api/diagrams/main/generation')).json()).toEqual({ generation: 0 })
+    expect(await (await fetch(f.url + `/api/diagrams/${id}/generation`)).json()).toEqual({ generation: 0 })
     new TreeCommands(client.provider.document).setText(ROOT_ID, 'После тайм-аута')
     await expect.poll(() => client.provider.hasUnsyncedChanges).toBe(false)
   } finally { await f.close() }
@@ -204,21 +206,22 @@ it('expires an unopened memory room and never recreates it implicitly', async ()
   } finally { doc.destroy(); await rooms.close() }
 })
 
-it('restarts after replacing main and restores its generation and snapshot from SQLite', async () => {
+it('restarts after replacing a diagram and restores its generation and snapshot from SQLite', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'decompose-generation-restart-'))
   let backend = createBackend({ dataDir: directory, clientDir: resolve('dist/client') })
   try {
     let url = `http://127.0.0.1:${await backend.listen(0)}`
-    const response = await fetch(url + '/api/diagrams/main/replace', {
+    const id = await createTestDiagram(url)
+    const response = await fetch(url + `/api/diagrams/${id}/replace`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ generation: 0, file }),
     })
     expect(response.status).toBe(200)
     await backend.close()
     backend = createBackend({ dataDir: directory, clientDir: resolve('dist/client') })
     url = `http://127.0.0.1:${await backend.listen(0)}`
-    expect(await (await fetch(url + '/api/diagrams/main/generation')).json()).toEqual({ generation: 1 })
-    expect((await (await fetch(url + '/api/diagrams/main')).json()).title).toBe('Восстановлено')
-    const direct = await backend.collaboration.openDirectConnection('main~1')
+    expect(await (await fetch(url + `/api/diagrams/${id}/generation`)).json()).toEqual({ generation: 1 })
+    expect((await (await fetch(url + `/api/diagrams/${id}`)).json()).title).toBe('Восстановлено')
+    const direct = await backend.collaboration.openDirectConnection(`${id}~1`)
     expect(getStructures(direct.document!).settings.get('textAlign')).toBe('center')
     await direct.disconnect()
   } finally { await backend.close(); await rm(directory, { recursive: true, force: true }) }
@@ -227,9 +230,10 @@ it('restarts after replacing main and restores its generation and snapshot from 
 it('aborts replacement when a participant disconnects and releases the surviving client', async () => {
   const f = await fixture()
   try {
-    const a = f.connect('main'), b = f.connect('main')
+    const id = await createTestDiagram(f.url)
+    const a = f.connect(id), b = f.connect(id)
     await expect.poll(() => a.provider.synced && b.provider.synced).toBe(true)
-    const pending = f.post('/api/diagrams/main/replace', { generation: 0, file })
+    const pending = f.post(`/api/diagrams/${id}/replace`, { generation: 0, file })
     await expect.poll(() => a.messages.some(m => m.type === 'replace-prepare')).toBe(true)
     a.provider.sendStateless(JSON.stringify({ type: 'replace-ready', operation: a.messages[0].operation }))
     b.socket.disconnect()
@@ -237,7 +241,7 @@ it('aborts replacement when a participant disconnects and releases the surviving
     await expect.poll(() => a.messages.some(m => m.type === 'replace-cancelled')).toBe(true)
     new TreeCommands(a.provider.document).setText(ROOT_ID, 'Можно продолжать')
     await expect.poll(() => a.provider.hasUnsyncedChanges).toBe(false)
-    expect((await (await fetch(f.url + '/api/diagrams/main')).json()).title).toBe('Можно продолжать')
+    expect((await (await fetch(f.url + `/api/diagrams/${id}`)).json()).title).toBe('Можно продолжать')
   } finally { await f.close() }
 }, 15000)
 
@@ -320,7 +324,7 @@ it('file collaboration is memory-only, pauses without the owner and cannot be re
     await expect.poll(() => f.backend.fileRooms.rooms.get(id)?.active).toBe(true)
     new TreeCommands(guest.provider.document).setText(ROOT_ID, 'Только в оперативной памяти')
     await expect.poll(() => projectTree(owner.provider.document).nodes.get(ROOT_ID)?.text).toBe('Только в оперативной памяти')
-    expect((await (await fetch(f.url + '/api/diagrams')).json()).map((item: { id: string }) => item.id)).toEqual(['main'])
+    expect((await (await fetch(f.url + '/api/diagrams')).json()).map((item: { id: string }) => item.id)).toEqual([])
     expect((await fetch(f.url + `/api/diagrams/${id}`)).status).toBe(404)
     owner.socket.disconnect()
     await expect.poll(() => f.backend.fileRooms.rooms.get(id)?.active).toBe(false)

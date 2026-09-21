@@ -1,7 +1,8 @@
+import { testDiagram } from './fixtures'
 import { expect, test } from './fixtures'
 
 test('compact cards show only text; Enter saves, a separate Enter creates a sibling', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   await page.locator('[data-cell-id="root"]').click()
   const count = await page.locator('[data-cell-id]').count()

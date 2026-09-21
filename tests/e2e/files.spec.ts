@@ -1,3 +1,4 @@
+import { testDiagram } from './fixtures'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,7 +22,7 @@ const file = { format: 'decompose', version: 1, nodes: [
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 const ready = (page: Page) => expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
 async function fileDialog(page: Page, mode: 'new' | 'replace' | 'disk' = 'new') {
-  await page.getByRole('button', { name: 'Схемы', exact: true }).click()
+  await page.getByRole('button', { name: 'Схемы', exact: true }).or(page.getByRole('button', { name: 'Начать работу' })).click()
   if (mode === 'replace') { await page.getByRole('button', { name: 'Заменить из файла', exact: true }).click(); return }
   await page.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab', { name: 'Файлы', exact: true }).click()
   await page.getByRole('button', { name: mode === 'disk' ? 'Открыть файл на диске' : 'Новая схема из файла', exact: true }).click()
@@ -31,7 +32,7 @@ async function upload(page: Page) {
 }
 
 test('native file imports as a new diagram and exports the active draft, formatting and order', async ({ page }) => {
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   await fileDialog(page); await upload(page)
   await expect(root(page)).toHaveAttribute('data-text', 'Файл схемы')
   await expect(page.locator('.file-indicator')).toHaveCount(0)
@@ -99,7 +100,7 @@ async function internalDialog(page: Page) {
 }
 
 test('owner and guest download a copy directly without changing the file or ending sharing', async ({ page, browser }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), invite = await shareDisk(page), contents = await diskText(page)
   const context = await namedContext(browser)
   try {
@@ -132,14 +133,14 @@ test('owner and guest download a copy directly without changing the file or endi
 })
 
 test('disk to internal saves accepted shared edits, ends the room and disconnects from the intact file', async ({ page, browser }) => {
-  await page.goto('http://127.0.0.1:4183/decompose/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto('http://127.0.0.1:4183/decompose/'); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible(); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), invite = await shareDisk(page)
   const context = await namedContext(browser)
   try {
     const guest = await context.newPage(); await guest.goto(invite); await ready(guest)
     await guest.getByRole('button', { name: 'Схемы', exact: true }).click()
     await expect(guest.getByRole('region', { name: 'Текущая схема' }).getByRole('button')).toHaveText(['Скачать копию'])
-    await expect(guest.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab')).toHaveText(['Схемы', 'Задачи', 'Файл'])
+    await expect(guest.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab')).toHaveText(['Схемы', 'Задачи', 'Файлы'])
     await guest.getByRole('button', { name: 'Закрыть список схем' }).click()
     await root(guest).dblclick(); await guest.getByRole('textbox', { name: 'Текст клеточки' }).fill('Принято от участника'); await guest.keyboard.press('Enter')
     await expect(root(page)).toHaveAttribute('data-text', 'Принято от участника')
@@ -167,7 +168,7 @@ test('disk to internal saves accepted shared edits, ends the room and disconnect
 })
 
 test('failed internal save keeps the disk editor and allows retry without losing data', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url()
   await page.route('**/api/diagrams/import', route => route.fulfill({ status: 503, json: { error: 'Сервер недоступен' } }))
   await internalDialog(page); await page.getByRole('button', { name: 'Сохранить и перейти' }).click()
@@ -181,7 +182,7 @@ test('failed internal save keeps the disk editor and allows retry without losing
 })
 
 test('external file conflict prevents creating an internal copy', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), before = await (await page.request.get('/api/diagrams')).json()
   await page.evaluate(async () => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
@@ -197,7 +198,7 @@ test('external file conflict prevents creating an internal copy', async ({ page 
 test('disk mode writes the original file, shares in memory, pauses guests and never caches content', async ({ page, browser }) => {
   const sockets: string[] = []
   page.on('websocket', socket => sockets.push(socket.url()))
-  await page.goto('http://127.0.0.1:4183/decompose/'); await ready(page); await installFilePicker(page)
+  await page.goto('http://127.0.0.1:4183/decompose/'); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible(); await installFilePicker(page)
   const cachesBefore = await page.evaluate(async () => (await indexedDB.databases()).map(db => db.name).filter(name => name?.startsWith('decompose:')))
   const catalogBefore = await (await page.request.get('/api/diagrams')).json()
   await fileDialog(page, 'disk')
@@ -268,7 +269,7 @@ test('disk mode writes the original file, shares in memory, pauses guests and ne
     await root(guest).dblclick(); await expect(guest.getByRole('textbox', { name: 'Текст клеточки' })).toHaveCount(0)
     await page.context().setOffline(false)
     await expect(guest.locator('.file-notice')).toHaveCount(0)
-    await page.locator('a.brand').click(); await ready(page)
+    await page.locator('a.brand').click(); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible()
     await expect(indicator).toHaveCount(0)
     await expect(guest.getByRole('alert')).toContainText('завершена')
     await expect(guest.locator('.file-indicator')).toContainText('Подключение завершено')
@@ -276,7 +277,7 @@ test('disk mode writes the original file, shares in memory, pauses guests and ne
 })
 
 test('external file modification stops autosave and leaving offers a non-browser confirmation', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page)
   await openDisk(page)
   await page.evaluate(async () => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
@@ -301,7 +302,7 @@ test('external file modification stops autosave and leaving offers a non-browser
 
 test('disk mode stays visible in a compact header with a long filename and on a narrow screen', async ({ page }) => {
   const name = `${'Длинное имя файла '.repeat(5)}.deco`
-  await page.goto('/'); await ready(page); await installFilePicker(page, name)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page, name)
   const normalStyle = await page.locator('.diagram-trigger').evaluate(element => {
     const style = getComputedStyle(element)
     return { font: style.font, borderWidth: style.borderTopWidth, borderStyle: style.borderTopStyle,
@@ -382,7 +383,7 @@ test('disk mode stays visible in a compact header with a long filename and on a 
 })
 
 test('an active file draft warns before unload and a hard reload reopens the same file', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page)
   await openDisk(page)
   await root(page).dblclick(); await page.getByRole('textbox').fill('Draft перед закрытием')
   expect(await page.evaluate(() => window.dispatchEvent(new Event('beforeunload', { cancelable: true })))).toBe(false)
@@ -404,7 +405,7 @@ async function openDisk(page: Page) {
 }
 
 test('disk selection starts directly from the menu; cancellation and errors leave the current scheme focused', async ({ page }) => {
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   const url = page.url()
   await root(page).click()
   await page.evaluate(() => Object.assign(window, {
@@ -437,7 +438,7 @@ test('disk selection starts directly from the menu; cancellation and errors leav
 })
 
 test('a late native selection cannot replace a scheme opened in the meantime', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page)
   const { id } = await (await page.request.post('/api/diagrams', { data: { title: 'Другая схема' } })).json()
   await page.evaluate(() => {
     const picker = (window as unknown as { showOpenFilePicker: () => Promise<unknown> }).showOpenFilePicker
@@ -481,7 +482,7 @@ test('sharing a local file preserves the owner editor, selection, undo and bound
     }
     Object.assign(window, { fileWrites: () => writes })
   })
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const child = page.locator('[data-cell-id]:not([data-cell-id="root"])')
   await child.click(); await page.keyboard.press('Space')
   const selected = await child.getAttribute('data-cell-id')
@@ -519,7 +520,7 @@ test('sharing a local file preserves the owner editor, selection, undo and bound
 
 for (const base of ['http://127.0.0.1:4173/', 'http://127.0.0.1:4183/decompose/']) {
   test(`old file URLs restore owners and guests on canonical paths at ${base}`, async ({ page, browser }) => {
-    await page.goto(base); await ready(page); await installFilePicker(page); await openDisk(page)
+    await page.goto(base); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible(); await installFilePicker(page); await openDisk(page)
     const localUrl = page.url(), localId = new URL(localUrl).pathname.split('/').at(-1)
     await page.goto(base + `?localFile=${localId}#bookmark`); await ready(page)
     await expect(page).toHaveURL(localUrl + '#bookmark')
@@ -559,7 +560,7 @@ test('legacy file placeholders keep the selection recovery screen on the canonic
 })
 
 test('owner keeps its local URL and resumes the same room and CRDT with and without guests', async ({ page, browser }) => {
-  await page.goto('http://127.0.0.1:4183/decompose/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto('http://127.0.0.1:4183/decompose/'); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible(); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url()
   const url = await shareDisk(page)
   expect(await shareDisk(page)).toBe(url)
@@ -586,7 +587,7 @@ test('owner keeps its local URL and resumes the same room and CRDT with and with
 })
 
 test('a second tab is a guest on the shared URL and cannot open the same file for writing', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), other = await page.context().newPage()
   try {
     await other.goto(localUrl)
@@ -611,14 +612,14 @@ test('a second tab is a guest on the shared URL and cannot open the same file fo
     await other.keyboard.press('Escape')
     await root(other).dblclick(); await other.getByRole('textbox').fill('Из второй вкладки'); await other.keyboard.press('Enter')
     await expect.poll(() => diskText(page)).toContain('Из второй вкладки')
-    await page.locator('a.brand').click(); await ready(page)
+    await page.locator('a.brand').click(); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible()
     await other.goto(localUrl); await ready(other)
     await expect(other.locator('.file-mode')).toHaveText('Файл на диске')
   } finally { await other.close() }
 })
 
 test('restored file requests permission from a click without reopening the picker', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const ownerUrl = page.url(), invitation = await shareDisk(page)
   await page.addInitScript(() => {
     let granted = false
@@ -638,7 +639,7 @@ test('restored file requests permission from a click without reopening the picke
 })
 
 test('resuming refuses external edits without overwriting the file', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   await shareDisk(page)
   await page.evaluate(async contents => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
@@ -651,7 +652,7 @@ test('resuming refuses external edits without overwriting the file', async ({ pa
 })
 
 for (const registered of [false, true]) test(`reload recovers an interrupted publication (${registered ? 'lost response' : 'unsent request'}) with the file ID`, async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), id = new URL(localUrl).pathname.split('/').at(-1)
   let secret = ''
   await page.route('**/api/file-sessions', async route => {
@@ -682,7 +683,7 @@ for (const registered of [false, true]) test(`reload recovers an interrupted pub
 })
 
 test('SPA distinguishes guest and local modes with the same ID and keeps the owner URL', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), invite = await shareDisk(page)
   const other = await page.context().newPage()
   await other.goto(invite); await ready(other)
@@ -705,7 +706,7 @@ test('SPA distinguishes guest and local modes with the same ID and keeps the own
 })
 
 test('sharing again clears the informational notice without hiding guest warnings', async ({ page, browser }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const invite = await shareDisk(page)
   const context = await namedContext(browser)
   try {
@@ -723,7 +724,7 @@ test('sharing again clears the informational notice without hiding guest warning
 })
 
 test('the same invitation waits for its owner and reopens a fresh generation without stale guest state', async ({ page, browser }) => {
-  await page.goto('http://127.0.0.1:4183/decompose/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto('http://127.0.0.1:4183/decompose/'); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible(); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), invite = await shareDisk(page)
   const context = await namedContext(browser)
   try {
@@ -756,7 +757,7 @@ test('the same invitation waits for its owner and reopens a fresh generation wit
     await expect(waiting.locator('.file-name')).toHaveText('diagram-test.json')
     await root(waiting).dblclick(); await waiting.getByRole('textbox').fill('После ожидания'); await waiting.keyboard.press('Enter')
     await expect.poll(() => diskText(page)).toContain('После ожидания')
-    await page.locator('a.brand').click(); await ready(page)
+    await page.locator('a.brand').click(); await expect(page.getByRole('button', { name: 'Начать работу' })).toBeVisible()
     await page.evaluate(async () => {
       const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
       Object.assign(window, { showOpenFilePicker: async () => [handle] })
@@ -769,7 +770,7 @@ test('the same invitation waits for its owner and reopens a fresh generation wit
 })
 
 test('explicitly picking an externally changed file replaces only the inactive generation and keeps both URLs', async ({ page }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), invite = await shareDisk(page)
   await page.evaluate(async contents => {
     const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
@@ -789,7 +790,7 @@ test('explicitly picking an externally changed file replaces only the inactive g
 })
 
 test('closing the owner tab and selecting the same file in a new tab preserves the invitation', async ({ page, browser }) => {
-  await page.goto('/'); await ready(page); await installFilePicker(page); await openDisk(page)
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
   const localUrl = page.url(), invite = await shareDisk(page), ownerContext = page.context()
   const ids = await page.locator('[data-cell-id]').evaluateAll(elements => elements.map(element => element.getAttribute('data-cell-id')))
   const context = await namedContext(browser)
@@ -801,7 +802,7 @@ test('closing the owner tab and selecting the same file in a new tab preserves t
     const guest = await context.newPage(); await guest.goto(invite)
     await expect(guest.locator('.loading')).toContainText('Ожидаем владельца файла')
     await expect(guest.getByTestId('connection')).toHaveCount(0)
-    reopened = await ownerContext.newPage(); await reopened.goto('/'); await ready(reopened)
+    reopened = await ownerContext.newPage(); await reopened.goto(await testDiagram(reopened)); await ready(reopened)
     await reopened.evaluate(async () => {
       const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
       Object.assign(window, { showOpenFilePicker: async () => [handle] })
@@ -818,7 +819,7 @@ test('closing the owner tab and selecting the same file in a new tab preserves t
 })
 
 test('missing files and cleared handle storage offer file selection without creating a server copy', async ({ page }) => {
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   const catalogBefore = await (await page.request.get('/api/diagrams')).json()
   await installFilePicker(page); await openDisk(page)
   await page.evaluate(async () => (await navigator.storage.getDirectory()).removeEntry('diagram-test.json'))

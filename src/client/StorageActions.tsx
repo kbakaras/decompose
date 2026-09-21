@@ -50,7 +50,7 @@ export function StorageActions({ mode, close, returnFocus, session, title, reque
   const running = useRef(false)
   const pending = useRef<AbortController | null>(null)
   useEffect(() => () => pending.current?.abort(), [])
-  const removable = session.source === 'system' && session.id !== 'main' && session.canEdit && session.connected
+  const removable = session.source === 'system' && session.canEdit && session.connected
   useEffect(() => {
     if (mode) { createdId.current = null; setError(''); dialog.current?.showModal() } else dialog.current?.close()
   }, [mode])
@@ -151,7 +151,6 @@ export function StorageActions({ mode, close, returnFocus, session, title, reque
     {transfer && <>
       <p>Сохранить на диск, удалить внутреннюю схему и продолжить редактирование файла.</p>
       {!canSaveDiskFile() && <p>Перенос требует HTTPS или локального запуска и браузера с прямой записью. Здесь можно скачать копию и отдельно удалить схему.</p>}
-      {session.id === 'main' && <p>Основная схема защищена от удаления. Можно скачать копию.</p>}
     </>}
     {mode === 'internal' && <p>Текущие изменения сохранятся на диск, затем откроется независимая внутренняя схема. Файл останется на диске, но редактор отключится от него. Совместная файловая сессия завершится; участники не перейдут во внутреннюю схему автоматически.</p>}
     {(mode === 'delete' || transfer) && <p>Схема будет удалена из системы для всех участников, без корзины и undo. Подключённые вкладки завершат синхронизацию; старые offline-правки не восстановят схему.{transfer && ' Удаление выполняется только после записи файла. Другие участники не переходят в файловую сессию автоматически.'}</p>}

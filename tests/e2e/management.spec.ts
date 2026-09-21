@@ -1,3 +1,4 @@
+import { testDiagram } from './fixtures'
 import { test, expect } from './fixtures'
 
 for (const shortcut of ['Control+o', 'Meta+o']) {
@@ -33,7 +34,7 @@ for (const shortcut of ['Control+o', 'Meta+o']) {
 }
 
 test('open shortcut uses the physical key and ignores extra modifiers, composition and repeats', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   const dispatch = (extra: Pick<KeyboardEventInit, 'shiftKey' | 'altKey' | 'isComposing' | 'repeat'>) => page.evaluate(extra => {
     const event = new KeyboardEvent('keydown', { code: 'KeyO', key: 'щ', ctrlKey: true, bubbles: true, cancelable: true, ...extra })
@@ -51,7 +52,7 @@ test('open shortcut uses the physical key and ignores extra modifiers, compositi
 })
 
 test('open shortcut does not stack the picker over another modal', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   await page.getByRole('button', { name: 'Изменить имя', exact: true }).click()
   const identity = page.getByRole('dialog', { name: 'Твоё имя', exact: true })
@@ -69,7 +70,7 @@ for (const mode of [
   { path: '/tracker/TABS-301', tab: 'Задачи' },
 ]) {
   test(`picker selects the document mode on every opening, including choose=1: ${mode.tab}`, async ({ page }) => {
-    await page.goto(`${mode.path}?choose=1`)
+    await page.goto(`${mode.path === '/' ? await testDiagram(page) : mode.path}?choose=1`)
     await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
     const selected = page.getByRole('tab', { name: mode.tab, exact: true })
     await expect(selected).toHaveAttribute('aria-selected', 'true')
@@ -89,7 +90,7 @@ for (const mode of [
 }
 
 test('tabs support manual keyboard activation without search stealing focus', async ({ page }) => {
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   const tabs = page.getByRole('tablist', { name: 'Раздел каталога' })
   const diagrams = tabs.getByRole('tab', { name: 'Схемы', exact: true })
   const tracker = tabs.getByRole('tab', { name: 'Задачи', exact: true })
@@ -155,7 +156,7 @@ test('compact management header wraps long names and actions without overflow', 
 })
 
 test('catalog search fields and action buttons use consistent sizing without redundant tracker labels', async ({ page }) => {
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   const picker = page.getByRole('dialog', { name: 'Выбор схемы для редактирования' })
   const search = picker.getByRole('searchbox')
   const metrics = (element: Element) => {
@@ -185,7 +186,7 @@ test('one field filters diagram names and creates only on an explicit action', a
     expect(response.ok()).toBe(true)
     ids.push((await response.json()).id)
   }
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   const search = page.getByRole('searchbox', { name: 'Поиск или название новой схемы', exact: true })
   const list = page.getByRole('navigation', { name: 'Список схем', exact: true })
   await expect(page.getByText('Поиск или название новой схемы', { exact: true })).toHaveCount(0)
@@ -227,7 +228,7 @@ test('one field filters diagram names and creates only on an explicit action', a
 
 test('diagram search works in the cached offline catalog while creation stays disabled', async ({ page, context }) => {
   await page.request.post('/api/diagrams', { data: { title: 'Offline поиск ёж' } })
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   const list = page.getByRole('navigation', { name: 'Список схем', exact: true })
   await expect(list.getByRole('link', { name: 'Offline поиск ёж', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
@@ -255,7 +256,7 @@ test('search arrows enter the results and Enter opens by name without creating',
     const response = await page.request.post('/api/diagrams', { data: { title: `Клавиатурный поиск ${index}` } })
     ids.push((await response.json()).id)
   }
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   let creations = 0
   page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/diagrams') creations++ })
   const search = page.getByRole('searchbox', { name: 'Поиск или название новой схемы', exact: true })
@@ -295,7 +296,7 @@ test('Enter waits for results, then only focuses Create; a separate press create
     await loading
     await route.fulfill({ json: [] })
   })
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   let creations = 0
   page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/diagrams') creations++ })
   const search = page.getByRole('searchbox', { name: 'Поиск или название новой схемы', exact: true })
@@ -393,7 +394,7 @@ test('switching tabs animates only the bottom edge and respects reduced motion',
   await page.route('**/api/diagrams', route => route.fulfill({ json: Array.from({ length: 20 }, (_, index) => ({
     id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, title: `Схема ${index}`,
   })) }))
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   const dialog = page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })
   await expect(page.getByRole('navigation', { name: 'Список схем' }).getByRole('link')).toHaveCount(20)
   const list = page.getByRole('navigation', { name: 'Список схем' })
@@ -432,7 +433,7 @@ test('switching tabs animates only the bottom edge and respects reduced motion',
 })
 
 test('dialog focus has no browser outline and keyboard controls have an inset indicator', async ({ page }) => {
-  await page.goto('/?choose=1')
+  await page.goto((await testDiagram(page)) + '?choose=1')
   const dialog = page.getByRole('dialog', { name: 'Выбор схемы для редактирования', exact: true })
   const tab = page.getByRole('tab', { name: 'Файлы', exact: true })
   await expect(dialog).toBeVisible()

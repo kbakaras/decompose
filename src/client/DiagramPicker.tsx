@@ -26,10 +26,11 @@ function saveCatalog(items: DiagramSummary[]) {
   try { localStorage.setItem(catalogKey, JSON.stringify(items)) } catch { /* Кеш списка необязателен. */ }
 }
 
-export function DiagramPicker({ id, title, tracker, connected, navigate, requestIdentity, temporary = false, actions, openFile, prepare, returnFocus, triggerContent, modeLabel, currentName, currentSection }: {
-  id: string; title: string; tracker?: TrackerSummary; connected: boolean; navigate: (url: string) => Promise<void>; requestIdentity: () => Promise<boolean>; temporary?: boolean
-  actions: (close: () => void) => ReactNode; openFile: (mode: FileAction | 'disk') => void; prepare: () => void; returnFocus: () => void; triggerContent?: ReactNode
-  modeLabel: string; currentName: string; currentSection: CatalogSection
+export function DiagramPicker({ id, title = '', tracker, connected, navigate, requestIdentity, temporary = false, actions, openFile, prepare, returnFocus, triggerContent, modeLabel, currentName, currentSection = 'diagrams', renderTrigger }: {
+  id?: string; title?: string; tracker?: TrackerSummary; connected: boolean; navigate: (url: string) => Promise<void>; requestIdentity: () => Promise<boolean>; temporary?: boolean
+  actions?: (close: () => void) => ReactNode; openFile: (mode: FileAction | 'disk') => void; prepare?: () => void; returnFocus: () => void; triggerContent?: ReactNode
+  modeLabel?: string; currentName?: string; currentSection?: CatalogSection
+  renderTrigger?: (open: () => void, expanded: boolean) => ReactNode
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const content = useRef<HTMLDivElement>(null)
@@ -48,7 +49,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
   const movingFocus = useRef(false)
   const closeForAction = () => { movingFocus.current = true; dialog.current?.close() }
   const openPicker = useCallback(() => {
-    prepare()
+    prepare?.()
     setSection(currentSection)
     setFocusedSection(currentSection)
     setName('')
@@ -92,7 +93,7 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
   }, [open])
 
   useEffect(() => {
-    if (temporary || knownDeletion(id)) return
+    if (!id || temporary || knownDeletion(id)) return
     if (tracker) {
       const cached = readTrackerCatalog().find(item => item.id === id) ?? tracker
       rememberTrackers([{ ...cached, title }])
@@ -154,12 +155,12 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
   }
 
   return <>
-    <h1 className={`document-title${triggerContent ? ' document-title-file' : ''}`}>
+    {renderTrigger ? renderTrigger(openPicker, open) : <h1 className={`document-title${triggerContent ? ' document-title-file' : ''}`}>
       <button className={`diagram-trigger${triggerContent ? ' file-trigger' : ''}`} aria-label="Схемы" title={triggerContent ? undefined : `${trackerLabel(title, tracker?.trackerKey)} — выбрать схему`}
         aria-haspopup="dialog" aria-expanded={open} aria-keyshortcuts="Control+O Meta+O" onClick={openPicker}>
         {triggerContent ?? <><span>{trackerLabel(title, tracker?.trackerKey)}</span><span aria-hidden="true">▾</span></>}
       </button>
-    </h1>
+    </h1>}
     <dialog ref={dialog} className="diagrams-dialog management-dialog" aria-labelledby="diagrams-heading"
       onCancel={event => { if (creating) event.preventDefault() }}
       onClose={() => { setOpen(false); if (!movingFocus.current) returnFocus(); movingFocus.current = false }}>
@@ -167,13 +168,13 @@ export function DiagramPicker({ id, title, tracker, connected, navigate, request
       <div className="diagrams-heading"><h2 id="diagrams-heading">Выбор схемы для редактирования</h2>
         <button className="icon-button" aria-label="Закрыть список схем" disabled={creating} onClick={() => dialog.current?.close()}>×</button>
       </div>
-      <section className="current-scheme" aria-label="Текущая схема">
+      {id && <section className="current-scheme" aria-label="Текущая схема">
         <div className="current-scheme-heading">
           <span className="storage-kind">{modeLabel}</span>
           <p className="current-scheme-name">{currentName}</p>
         </div>
-        <fieldset className="scheme-actions" disabled={creating}>{actions(closeForAction)}</fieldset>
-      </section>
+        <fieldset className="scheme-actions" disabled={creating}>{actions?.(closeForAction)}</fieldset>
+      </section>}
       <section className="open-scheme" aria-label="Открыть другую">
       <div className="catalog-sections" role="tablist" aria-label="Раздел каталога">
         {catalogSections.map((item, index) => <button key={item.id} ref={element => { tabs.current[item.id] = element ?? undefined }}

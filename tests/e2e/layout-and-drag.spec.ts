@@ -1,7 +1,8 @@
+import { testDiagram } from './fixtures'
 import { expect, test, namedContext, type Page } from './fixtures'
 
 async function open(page: Page) {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
   await expect(page.getByTestId('connection')).toHaveAttribute('data-connected', 'true')
 }
@@ -52,7 +53,7 @@ test('initial view appears in its final position on first load, reload and offli
         await context.setOffline(true)
         await viewer.evaluate(() => window.dispatchEvent(new Event('offline')))
       }
-      if (mode === 'first') await viewer.goto('/')
+      if (mode === 'first') await viewer.goto(await testDiagram(viewer))
       else await viewer.reload()
       await expect(viewer.locator('main')).toHaveAttribute('data-ready', 'true')
       await expect(cell(viewer, leaf)).toBeVisible()

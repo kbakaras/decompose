@@ -455,10 +455,10 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         prepare={commit} returnFocus={focusCanvas} openFile={mode => { if (mode === 'disk') void openDiskFile(); else fileActions.current?.open(mode) }} actions={close => <>
           {session.source === 'system' && <>
             <button disabled={!ready || switching} onClick={() => { close(); downloadCopy() }}>Сохранить в файл</button>
-            <button disabled={session.id === 'main' || !connected || !session.canEdit || switching} title={session.id === 'main' ? 'Основная схема защищена от удаления' : 'Удалить внутреннюю копию после записи и перейти к файлу'}
+            <button disabled={!connected || !session.canEdit || switching} title="Удалить внутреннюю копию после записи и перейти к файлу"
               onClick={() => { close(); setStorageMode('transfer') }}>Перенести в файл</button>
             <button disabled={!ready || !connected || !session.canEdit || switching} onClick={() => { close(); fileActions.current?.open('replace') }}>Заменить из файла</button>
-            <button className="delete-button" disabled={session.id === 'main' || !connected || !session.canEdit || switching}
+            <button className="delete-button" disabled={!connected || !session.canEdit || switching}
               onClick={() => { close(); setStorageMode('delete') }}>Удалить схему</button>
           </>}
           {session.file && <>

@@ -9,11 +9,17 @@ import { appBaseUrl, appUrl } from './app-url'
 import { openFileSession, restoreFileSession, type OpenLocalFile } from './file-session'
 import { pickWritableFile, type WritableFile } from './diagram-file'
 import { FilePermission, type FileLease, type FileRecord } from './file-records'
+import { Home } from './Home'
+import { clearLegacyMain } from './legacy-main'
 
 export function Application() {
   const { requestIdentity, editIdentity, cancelIdentity, dialog } = useIdentityPrompt()
   const [header, setHeader] = useState<HTMLElement | null>(null)
   const [session, setSession] = useState<Session | null>(null)
+  const [home, setHome] = useState(() => {
+    try { return parseDiagramRoute(new URL(location.href), new URL(appBaseUrl)).kind === 'home' } catch { return false }
+  })
+  const [homeVisit, setHomeVisit] = useState(0)
   const [switching, setSwitching] = useState(false)
   const [showLoadingNotice, setShowLoadingNotice] = useState(false)
   const [error, setError] = useState('')
@@ -65,11 +71,36 @@ export function Application() {
       if (currentGeneration !== generation.current) { local?.lease?.release(); return }
       let candidate: Session | null = null
       let route: DiagramRoute | undefined
+      const flushPrevious = async () => {
+        if (discard) return
+        try { await active.current?.flush() }
+        catch (error) {
+          if (active.current?.file) {
+            setLeave(() => () => { setLeave(null); void navigate(href, mode, force, local, true) })
+            throw new Error('Не удалось сохранить файл. Можно остаться или уйти без сохранения.')
+          }
+          throw error
+        }
+      }
       try {
         route = local ? { kind: 'local-file', id: 'local' } : parseDiagramRoute(url, new URL(appBaseUrl))
         if (!local) {
           url.href = canonicalDiagramUrl(url, new URL(appBaseUrl)).href
           if (mode !== 'push' && location.href !== url.href) history.replaceState(null, '', url)
+        }
+        if (route.kind === 'home') {
+          await flushPrevious()
+          controller.signal.throwIfAborted()
+          const closing = active.current?.destroy()
+          active.current = null; setSession(null); setNeedsFile(false)
+          setHome(true)
+          // На первом входе Home уже смонтирован и мог обработать choose=1.
+          if (mode !== 'initial') setHomeVisit(value => value + 1)
+          if (mode === 'push' && location.href !== url.href) history.pushState(null, '', url)
+          else if (mode !== 'push') history.replaceState(null, '', url)
+          activeUrl.current = url.href
+          await closing
+          return
         }
         let tracker: TrackerSummary | undefined
         if (route.kind === 'tracker') {
@@ -83,21 +114,13 @@ export function Application() {
           : route.kind === 'local-file' ? active.current.source === 'file' : active.current.source === 'system')
         if (!force && sameSession && active.current?.fileUrl) url.pathname = new URL(active.current.fileUrl).pathname
         if (force || !sameSession) {
-          if (!discard) {
-            try { await active.current?.flush() }
-            catch (error) {
-              if (active.current?.file) {
-                setLeave(() => () => { setLeave(null); void navigate(href, mode, force, local, true) })
-                throw new Error('Не удалось сохранить файл. Можно остаться или уйти без сохранения.')
-              }
-              throw error
-            }
-          }
+          await flushPrevious()
+          controller.signal.throwIfAborted()
           candidate = local ? await openFileSession(local.handle, local.text, controller.signal, local.lease)
             : route.kind === 'file' || route.kind === 'local-file' ? await restoreFileSession(id, route.kind === 'file', controller.signal)
               : await openSession(id, controller.signal, tracker, force)
           if (!candidate) {
-            await active.current?.destroy(); active.current = null; setSession(null); setNeedsFile(true)
+            await active.current?.destroy(); active.current = null; setSession(null); setHome(false); setNeedsFile(true)
             if (mode === 'push') history.pushState(null, '', url); else history.replaceState(null, '', url)
             activeUrl.current = url.href
             return
@@ -111,6 +134,7 @@ export function Application() {
           closing = active.current?.destroy()
           active.current = candidate
           setSession(candidate)
+          setHome(false)
           setNeedsFile(false)
           candidate = null
         }
@@ -124,7 +148,7 @@ export function Application() {
       } catch (failure) {
         if (candidate) await candidate.destroy().catch(console.error)
         if (currentGeneration !== generation.current || controller.signal.aborted) return
-        if (mode === 'pop' && active.current) history.replaceState(null, '', activeUrl.current)
+        if (mode === 'pop') history.replaceState(null, '', activeUrl.current)
         if (failure instanceof TrackerDeleted) {
           setDeletedTracker({ href, id: failure.id })
         } else if (failure instanceof TrackerCreationCancelled) {
@@ -172,6 +196,7 @@ export function Application() {
   }
 
   useEffect(() => {
+    void clearLegacyMain().catch(console.error)
     void navigate(location.href, 'initial')
     const popstate = () => { void navigate(location.href, 'pop') }
     window.addEventListener('popstate', popstate)
@@ -201,6 +226,7 @@ export function Application() {
       ? <App key={session.doc.clientID} session={session} header={header} switching={switching}
         navigate={navigate} openLocal={openLocal} reload={() => navigate(activeUrl.current, 'initial', true)}
         registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
+      : home ? <Home key={homeVisit} navigate={navigate} requestIdentity={requestIdentity} openLocal={openLocal} switching={switching} />
       : <div className="loading">{needsFile ? <>
         <p>{fileRecovery?.record ? `Нужно разрешение на файл «${fileRecovery.record.handle.name}».` : 'Не удалось восстановить файл. Его содержимое хранится только на диске.'}</p>
         <button onClick={() => { void pickWritableFile().then(({ handle, text }) => openLocal(handle, text)).catch(error => setError(String(error))) }}>Открыть файл на диске</button>
@@ -208,7 +234,7 @@ export function Application() {
         <p>Дерево задачи ещё не создано.</p>
         <button onClick={() => { void navigate(cancelledTracker, 'initial') }}>Создать дерево задачи</button>{' '}
       </> : !error && !deletedTracker && 'Открываем дерево·дел…'}
-        {(error || cancelledTracker || deletedTracker) && <a href="./" onClick={event => { event.preventDefault(); void navigate('./') }}>Вернуться к основной схеме</a>}
+        {(error || cancelledTracker || deletedTracker || needsFile) && <a href="./" onClick={event => { event.preventDefault(); void navigate('./') }}>На главную</a>}
       </div>}
     {fileRecovery && <div className="notice file-recovery" role="status">
       <button disabled={switching} onClick={continueFile}>{fileRecovery.record ? 'Продолжить работу с файлом' : 'Повторить открытие'}</button>

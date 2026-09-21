@@ -1,3 +1,4 @@
+import { testDiagram } from './fixtures'
 import { test, expect, namedContext, type Page } from './fixtures'
 
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
@@ -14,16 +15,16 @@ async function transferDialog(page: Page) {
   await picker(page); await page.getByRole('button', { name: 'Перенести в файл', exact: true }).click()
 }
 
-test('scheme actions live in the picker, main is protected, cancellation restores keyboard focus', async ({ page }) => {
-  await page.goto('/'); await ready(page)
+test('scheme actions live in the picker, cancellation restores keyboard focus', async ({ page }) => {
+  await page.goto(await testDiagram(page)); await ready(page)
   await page.getByRole('button', { name: 'Действия с клеточкой' }).click()
   await expect(page.getByRole('button', { name: 'Заменить из файла' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Сохранить в файл' })).toHaveCount(0)
   await picker(page)
-  await expect(page.getByRole('button', { name: 'Удалить схему' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Удалить схему' })).toBeEnabled()
   await page.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab', { name: 'Задачи' }).click()
   await expect(page.getByRole('button', { name: 'Заменить из файла' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Перенести в файл' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Перенести в файл' })).toBeEnabled()
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Сохранить в файл' }).click()
   await download
@@ -147,9 +148,9 @@ test('a cancelled picker or failed write leaves the system diagram editable and 
 })
 
 test('leaving the diagram while the native picker is pending cancels the transfer', async ({ page }) => {
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   const { id } = await (await page.request.post('/api/diagrams', { data: { title: 'Не удалять после ухода' } })).json()
-  await page.evaluate(id => { history.pushState(null, '', `?diagram=${id}`); window.dispatchEvent(new PopStateEvent('popstate')) }, id)
+  await page.evaluate(id => { history.pushState(null, '', `/diagram/${id}`); window.dispatchEvent(new PopStateEvent('popstate')) }, id)
   await expect(root(page)).toHaveAttribute('data-text', 'Не удалять после ухода')
   await savePicker(page)
   await page.evaluate(() => {
@@ -163,7 +164,7 @@ test('leaving the diagram while the native picker is pending cancels the transfe
   await transferDialog(page)
   await page.getByRole('button', { name: 'Перенести в файл' }).click()
   await page.goBack(); await ready(page)
-  await expect(page.locator('main')).toHaveAttribute('data-diagram-id', 'main')
+  await expect(page.locator('main')).toHaveAttribute('data-diagram-id', (await testDiagram(page)).split('/').pop()!)
   await page.evaluate(() => (window as unknown as { resumeSavePicker: () => Promise<void> }).resumeSavePicker())
   expect((await page.request.get(`/api/diagrams/${id}`)).status()).toBe(200)
   expect(preparations).toEqual([])

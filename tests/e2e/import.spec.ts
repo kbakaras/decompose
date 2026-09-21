@@ -1,3 +1,4 @@
+import { testDiagram } from './fixtures'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { expect, test, namedContext, type Page } from './fixtures'
@@ -20,7 +21,7 @@ async function upload(page: Page, xml?: string) {
 }
 
 test('cancelling direct new or replacement file selection keeps the scheme and restores keyboard focus', async ({ page }) => {
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   const before = await (await page.request.get('/api/diagrams')).json(), url = page.url()
   for (const open of [picker, replacementDialog]) {
     const chooser = page.waitForEvent('filechooser')
@@ -35,7 +36,7 @@ test('cancelling direct new or replacement file selection keeps the scheme and r
 })
 
 test('imports all yEd nodes with semantic order and green status; reload, collaboration and undo work', async ({ page, browser }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   const previous = await page.locator('[data-cell-id]').evaluateAll(cells => cells.map(c => c.getAttribute('data-text')))
   const chooser = page.waitForEvent('filechooser')
@@ -74,14 +75,14 @@ test('imports all yEd nodes with semantic order and green status; reload, collab
     await expect(cell(peer, 'Учебная схема')).toHaveCount(1)
     await page.getByRole('button', { name: 'Повторить действие', exact: true }).click()
     await expect(cell(peer, 'Импорт отредактирован')).toHaveCount(1)
-    await page.goto('/')
+    await page.goto(await testDiagram(page))
     await ready(page)
     expect(await page.locator('[data-cell-id]').evaluateAll(cells => cells.map(c => c.getAttribute('data-text')))).toEqual(previous)
   } finally { await context.close() }
 })
 
 test('rejects unsupported and unsafe files without creating diagrams, and can select the same file again', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   const before = await (await page.request.get('/api/diagrams')).json()
   const xml = await readFile(fixture, 'utf8')
@@ -110,7 +111,7 @@ test('rejects unsupported and unsafe files without creating diagrams, and can se
     await upload(page, content)
     await expect(page.getByRole('alert')).toBeVisible()
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    expect(new URL(page.url()).pathname).toBe('/')
+    expect(page.url()).toBe(await testDiagram(page))
   }
   expect(await (await page.request.get('/api/diagrams')).json()).toEqual(before)
   await upload(page)
@@ -119,7 +120,7 @@ test('rejects unsupported and unsafe files without creating diagrams, and can se
 })
 
 test('node and edge XML order never override geometry; equal centers use lexical source IDs', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   let xml = await readFile(fixture, 'utf8')
   const nodes = xml.match(/<node\b[\s\S]*?<\/node>/g)!.reverse()
@@ -141,13 +142,13 @@ test('node and edge XML order never override geometry; equal centers use lexical
 })
 
 test('reports server failure, resets file selection and prevents duplicate submissions while importing', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   await picker(page)
   await page.route('**/api/diagrams/import', route => route.fulfill({ status: 503, json: { error: 'Сервер временно недоступен' } }))
   await upload(page)
   await expect(page.getByRole('alert')).toContainText('Сервер временно недоступен')
-  expect(new URL(page.url()).pathname).toBe('/')
+  expect(page.url()).toBe(await testDiagram(page))
   await page.unroute('**/api/diagrams/import')
   let release!: () => void
   const barrier = new Promise<void>(resolve => { release = resolve })
@@ -171,7 +172,7 @@ test('reports server failure, resets file selection and prevents duplicate submi
 })
 
 test('accepts GenericNode and namespaces, treats labels as plain text and ignores transparent or gradient green', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   const xml = (await readFile(fixture, 'utf8'))
     .replaceAll('ShapeNode', 'GenericNode').replaceAll('xmlns:y=', 'xmlns:paint=').replaceAll('y:', 'paint:')
@@ -191,7 +192,7 @@ test('guest can cancel import, then introduce themselves and import exactly once
   const context = await browser.newContext()
   try {
     const page = await context.newPage()
-    await page.goto('/')
+    await page.goto(await testDiagram(page))
     await ready(page)
     const before = await (await page.request.get('/api/diagrams')).json()
     await picker(page)

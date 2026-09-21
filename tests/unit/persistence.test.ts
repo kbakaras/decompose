@@ -1,3 +1,4 @@
+import { createTestDiagram } from './helpers'
 import { expect, it } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -11,7 +12,8 @@ it('persists binary Yjs state through a full server restart', async () => {
   try {
     const port = await backend.listen(0)
     expect(await (await fetch(`http://127.0.0.1:${port}/healthz`)).json()).toEqual({ status: 'ok' })
-    const connection = await backend.collaboration.openDirectConnection('main')
+    const id = await createTestDiagram(`http://127.0.0.1:${port}`)
+    const connection = await backend.collaboration.openDirectConnection(id)
     const child = new TreeCommands(connection.document!).createChild(ROOT_ID, 'Сохранить\nмысль')
     new TreeCommands(connection.document!).setTextAlign('center')
     new TreeCommands(connection.document!).setText(ROOT_ID, 'Корень\nс переносом')
@@ -21,11 +23,11 @@ it('persists binary Yjs state through a full server restart', async () => {
     await backend.close()
     backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
     const restoredPort = await backend.listen(0)
-    const restored = await backend.collaboration.openDirectConnection('main')
+    const restored = await backend.collaboration.openDirectConnection(id)
     expect(projectTree(restored.document!).nodes.get(child)?.text).toBe('Сохранить\nмысль')
     expect(projectTree(restored.document!).nodes.get(ROOT_ID)?.text).toBe('Корень\nс переносом')
     expect(readTextAlign(restored.document!)).toBe('center')
-    expect((await (await fetch(`http://127.0.0.1:${restoredPort}/api/diagrams/main`)).json()).title).toBe('Корень с переносом')
+    expect((await (await fetch(`http://127.0.0.1:${restoredPort}/api/diagrams/${id}`)).json()).title).toBe('Корень с переносом')
     expect(projectTree(restored.document!).nodes.size).toBe(2)
     expect(projectTree(restored.document!).nodes.has(hidden)).toBe(false)
     await restored.disconnect()
@@ -39,8 +41,9 @@ it('upgrades schema 1 without reviving legacy deletions and persists the migrate
   const dataDir = await mkdtemp(join(tmpdir(), 'decompose-migration-'))
   let backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
   try {
-    await backend.listen(0)
-    const connection = await backend.collaboration.openDirectConnection('main')
+    const port = await backend.listen(0)
+    const id = await createTestDiagram(`http://127.0.0.1:${port}`)
+    const connection = await backend.collaboration.openDirectConnection(id)
     const doc = connection.document!
     const commands = new TreeCommands(doc)
     const live = commands.createChild(ROOT_ID, 'Старый документ')
@@ -53,7 +56,7 @@ it('upgrades schema 1 without reviving legacy deletions and persists the migrate
     await backend.close()
     backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
     await backend.listen(0)
-    const migrated = await backend.collaboration.openDirectConnection('main')
+    const migrated = await backend.collaboration.openDirectConnection(id)
     expect(getStructures(migrated.document!).meta.get('schemaVersion')).toBe(SCHEMA_VERSION)
     expect(projectTree(migrated.document!).nodes.get(live)?.text).toBe('Старый документ')
     expect(projectTree(migrated.document!).nodes.has(deleted)).toBe(false)
@@ -68,7 +71,7 @@ it('upgrades schema 1 without reviving legacy deletions and persists the migrate
     await backend.close()
     backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
     await backend.listen(0)
-    const persisted = await backend.collaboration.openDirectConnection('main')
+    const persisted = await backend.collaboration.openDirectConnection(id)
     expect(getStructures(persisted.document!).meta.get('schemaVersion')).toBe(SCHEMA_VERSION)
     expect(projectTree(persisted.document!).nodes.get(live)?.text).toBe('Старый документ')
     expect(projectTree(persisted.document!).nodes.has(deleted)).toBe(false)

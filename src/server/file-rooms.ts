@@ -93,7 +93,7 @@ export class FileRooms {
 
   create(state: unknown, id: unknown, authorization?: string) {
     const secret = authorization?.startsWith('Bearer ') ? authorization.slice(7) : ''
-    if (!isDiagramId(id) || id === 'main' || secret.length !== 72
+    if (!isDiagramId(id) || secret.length !== 72
       || !isDiagramId(secret.slice(0, 36)) || !isDiagramId(secret.slice(36))) {
       return { status: 400, body: { error: 'Некорректный ID файла или секрет владельца.' } }
     }

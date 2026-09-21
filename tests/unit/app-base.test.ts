@@ -28,11 +28,11 @@ it('rejects missing HTML markers and unsafe base substitutions', () => {
 it.each(['http://localhost:3000/', 'http://gateway.test/decompose/', 'https://gateway.test:8443/tools/tree/'])('keeps API and routes within %s', base => {
   expect(resolveAppUrl('api/diagrams', base).href).toBe(base + 'api/diagrams')
   expect(resolveAppUrl('./', base).href).toBe(base)
-  expect(parseDiagramRoute(resolveAppUrl(diagramUrl('main'), base), new URL(base))).toEqual({ kind: 'diagram', id: 'main' })
+  const id = '5e155b04-31db-4117-a0ca-1e3e4d8cfd26'
+  expect(parseDiagramRoute(resolveAppUrl(diagramUrl(id), base), new URL(base))).toEqual({ kind: 'diagram', id })
   expect(parseDiagramRoute(resolveAppUrl(trackerUrl('mc-99636'), base), new URL(base))).toEqual({ kind: 'tracker', key: 'MC-99636' })
   expect(parseDiagramRoute(resolveAppUrl('tracker/MC-1/', base), new URL(base))).toEqual({ kind: 'tracker', key: 'MC-1' })
-  expect(parseDiagramRoute(resolveAppUrl('index.html?diagram=main', base), new URL(base))).toEqual({ kind: 'diagram', id: 'main' })
-  const id = '5e155b04-31db-4117-a0ca-1e3e4d8cfd26'
+  expect(parseDiagramRoute(resolveAppUrl('index.html', base), new URL(base))).toEqual({ kind: 'home' })
   expect(parseDiagramRoute(resolveAppUrl(`./?localFile=${id}`, base), new URL(base))).toEqual({ kind: 'local-file', id })
   expect(parseDiagramRoute(resolveAppUrl(`./?fileSession=${id}`, base), new URL(base))).toEqual({ kind: 'file', id })
   expect(parseDiagramRoute(resolveAppUrl(localFileUrl(id), base), new URL(base))).toEqual({ kind: 'local-file', id })
@@ -47,7 +47,7 @@ it.each(['http://localhost:3000/', 'https://gateway.test/tools/tree/'])('canonic
   const base = new URL(mount), id = '5e155b04-31db-4117-a0ca-1e3e4d8cfd26'
   for (const [from, to] of [
     ['', ''], ['index.html', ''], ['?choose=1', '?choose=1'],
-    [`?diagram=${id}`, `diagram/${id}`], ['index.html?diagram=main&choose=1#note', 'diagram/main?choose=1#note'],
+    [`?diagram=${id}`, `diagram/${id}`], [`index.html?diagram=${id}&choose=1#note`, `diagram/${id}?choose=1#note`],
     [`?localFile=${id}`, `file/local/${id}`], [`?fileSession=${id}`, `file/session/${id}`],
     ['?localFile=1', 'file/local/1'], ['tracker/mc-12/?diagram=main&choose=1', 'tracker/MC-12?choose=1'],
     [`diagram/${id}/?localFile=1`, `diagram/${id}`],
@@ -57,7 +57,7 @@ it.each(['http://localhost:3000/', 'https://gateway.test/tools/tree/'])('canonic
     expect(canonical.href).toBe(new URL(to, base).href)
     expect(canonicalDiagramUrl(canonical, base).href).toBe(canonical.href)
   }
-  for (const path of ['diagram/bad', 'file/local/main', 'file/session/main', 'file/session/1', 'file/unknown/' + id,
+  for (const path of ['diagram/main', '?diagram=main', 'diagram/bad', 'file/local/main', 'file/session/main', 'file/session/1', 'file/unknown/' + id,
     'file/local/' + id + '/extra', 'diagram/main/extra', 'file/local/%2F', 'tracker/%ZZ']) {
     expect(() => canonicalDiagramUrl(new URL(path, base), base)).toThrow()
   }

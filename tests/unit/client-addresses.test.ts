@@ -20,7 +20,8 @@ it('keeps browser source free of fixed network endpoints and direct UUID calls o
   for (const directory of ['src/client', 'src/domain', 'src/shared']) {
     for (const file of readdirSync(directory, { recursive: true, encoding: 'utf8' }).filter(file => /\.tsx?$/.test(file))) {
       const source = readFileSync(resolve(directory, file), 'utf8')
-      expect(source, `${directory}/${file}`).not.toMatch(/\blocalhost\b|127\.0\.0\.1/)
+      // Упоминание ограничения браузера в тексте титульной страницы — не сетевой адрес.
+      expect(source.replace('HTTPS либо localhost.', ''), `${directory}/${file}`).not.toMatch(/\blocalhost\b|127\.0\.0\.1/)
       const urls = source.match(/\b(?:https?|wss?):\/\/[^\s'"`]+/g) ?? []
       expect(urls.filter(url => !(file === 'yed-import.ts' && namespaces.has(url))), `${directory}/${file}`).toEqual([])
       if (directory !== 'src/shared' || file !== 'uuid.ts') {

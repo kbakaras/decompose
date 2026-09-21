@@ -1,3 +1,4 @@
+import { testDiagram } from './fixtures'
 import { test, expect, type Page } from '@playwright/test'
 
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
@@ -50,7 +51,7 @@ test('first tracker visit asks for a name, cancel creates nothing, retry initial
 
 test('management offers the same actions for diagrams and tasks and opens a typed key only on request', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('decompose:participant-name:v1', 'Автор'))
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   await picker(page, 'Схемы')
   const current = page.getByRole('region', { name: 'Текущая схема' })
   await expect(current).toContainText('Внутренняя схема')
@@ -77,7 +78,7 @@ test('management offers the same actions for diagrams and tasks and opens a type
 
 test('task creation requires a checked unused key without whitespace', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('decompose:participant-name:v1', 'Автор'))
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   await picker(page, 'Задачи')
   const search = page.getByLabel('Поиск задач', { exact: true })
   const create = page.getByRole('button', { name: 'Создать', exact: true })
@@ -108,7 +109,7 @@ test('task creation requires a checked unused key without whitespace', async ({ 
 
 test('task search supports arrow selection and Enter opening without creation', async ({ page }) => {
   for (let index = 1; index <= 3; index++) await page.request.post(`/api/tracker/KEYBOARD-${index}`)
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   await picker(page, 'Задачи')
   let posts = 0
   page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/api/tracker/')) posts++ })
@@ -146,7 +147,7 @@ test('task search supports arrow selection and Enter opening without creation', 
 test('an existing task beyond the first search page cannot be created', async ({ page }) => {
   await page.request.post('/api/tracker/EXACT-1')
   for (let i = 100; i < 125; i++) await page.request.post(`/api/tracker/EXACT-${i}`)
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   await picker(page, 'Задачи')
   const checked = page.waitForResponse(response => response.url().endsWith('/api/tracker/EXACT-1'))
   await page.getByLabel('Поиск задач', { exact: true }).fill('exact-1')
@@ -164,7 +165,7 @@ test.describe('controlled tracker availability', () => {
 test.use({ serviceWorkers: 'block' })
 
 test('task creation stays disabled during lookup, after lookup errors and offline', async ({ page, context }) => {
-  await page.goto('/'); await ready(page)
+  await page.goto(await testDiagram(page)); await ready(page)
   await picker(page, 'Задачи')
   const search = page.getByLabel('Поиск задач', { exact: true })
   const create = page.getByRole('button', { name: 'Создать', exact: true })
@@ -202,6 +203,7 @@ test('task creation stays disabled during lookup, after lookup errors and offlin
 })
 
 test('existing tasks are guest-readable, shared across clients and separate from ordinary diagrams', async ({ page, browser }) => {
+  const ordinaryUrl = await testDiagram(page)
   await page.addInitScript(() => localStorage.setItem('decompose:participant-name:v1', 'Автор'))
   await page.goto('/tracker/UI-200')
   await ready(page)
@@ -223,9 +225,9 @@ test('existing tasks are guest-readable, shared across clients and separate from
     await expect(page.getByRole('navigation', { name: 'Список задач' }).getByRole('link')).toHaveText(/UI-200 · Совместная задача/)
     await page.getByRole('tablist', { name: 'Раздел каталога' }).getByRole('tab', { name: 'Схемы', exact: true }).click()
     await expect(page.locator(`.diagrams-list a[href="diagram/${id}"]`)).toHaveCount(0)
-    await page.locator('.diagrams-list a[href="diagram/main"]').click()
+    await page.locator(`.diagrams-list a[href="diagram/${ordinaryUrl.split('/').pop()}"]`).click()
     await ready(page)
-    await expect(page.locator('main')).toHaveAttribute('data-diagram-id', 'main')
+    await expect(page.locator('main')).toHaveAttribute('data-diagram-id', (await testDiagram(page)).split('/').pop()!)
     await page.goBack()
     await ready(page)
     await expect(page).toHaveURL(/\/tracker\/UI-200$/)
@@ -296,19 +298,19 @@ test('loaded tracker routes and cached search work offline and edits sync on rec
 })
 
 test('leaving a pending creation cancels its identity prompt without creating a task', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   await navigate(page, '/tracker/CANCEL-1')
   await expect(page.getByRole('dialog', { name: 'Представься', exact: true })).toBeVisible()
   await page.goBack()
   await ready(page)
   await expect(page.getByRole('dialog', { name: 'Представься', exact: true })).toHaveCount(0)
-  await expect(page.locator('main')).toHaveAttribute('data-diagram-id', 'main')
+  await expect(page.locator('main')).toHaveAttribute('data-diagram-id', (await testDiagram(page)).split('/').pop()!)
   expect((await page.request.get('/api/tracker/CANCEL-1')).status()).toBe(404)
 })
 
 test('late search responses do not overwrite the latest query', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   await picker(page, 'Задачи')
   const item = await (await page.request.post('/api/tracker/RACE-1')).json()
@@ -335,7 +337,7 @@ test('late search responses do not overwrite the latest query', async ({ page })
 })
 
 test('server errors do not create tasks and cancelling a transition retains the current diagram', async ({ page }) => {
-  await page.goto('/')
+  await page.goto(await testDiagram(page))
   await ready(page)
   const posts: string[] = []
   page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/api/tracker/')) posts.push(request.url()) })
@@ -343,13 +345,13 @@ test('server errors do not create tasks and cancelling a transition retains the 
   await navigate(page, '/tracker/FAIL-1')
   await expect(page.getByRole('alert')).toContainText('Сервер не смог открыть дерево задачи')
   await expect(page.getByRole('dialog', { name: 'Представься' })).toHaveCount(0)
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(await testDiagram(page))
   await navigate(page, '/tracker/CANCEL-2')
   await expect(page.getByRole('dialog', { name: 'Представься', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await ready(page)
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.locator('main')).toHaveAttribute('data-diagram-id', 'main')
+  await expect(page).toHaveURL(await testDiagram(page))
+  await expect(page.locator('main')).toHaveAttribute('data-diagram-id', (await testDiagram(page)).split('/').pop()!)
   expect(posts).toEqual([])
   expect((await page.request.get('/api/tracker/CANCEL-2')).status()).toBe(404)
 })
