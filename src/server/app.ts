@@ -75,7 +75,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     if (request.body?.format === undefined && Buffer.byteLength(JSON.stringify(request.body)) > IMPORT_JSON_LIMIT) {
       response.status(413).json({ error: 'Превышен допустимый размер запроса.' }); return
     }
-    const doc = createImportedDocument(request.body)
+    const doc = createImportedDocument(request.body, 'center')
     const id = createUuid()
     try {
       const title = diagramTitle(readText(getStructures(doc).nodes.get(ROOT_ID)!))
@@ -167,7 +167,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     const id = createUuid()
     const doc = new Y.Doc()
     try {
-      initializeDocument(doc)
+      initializeDocument(doc, 'center')
       getStructures(doc).nodes.get(ROOT_ID)!.set('text', title)
       storage.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
     } finally { doc.destroy() }

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createBackend } from '../../src/server/app'
-import { projectTree, ROOT_ID, TreeCommands } from '../../src/domain'
+import { projectTree, readTextAlign, ROOT_ID, TreeCommands } from '../../src/domain'
 import { normalizeTrackerKey, trackerLabel, trackerSearch, type TrackerPage, type TrackerSummary } from '../../src/shared/tracker'
 import { parseDiagramRoute } from '../../src/shared/diagram-route'
 
@@ -43,6 +43,7 @@ it('creates exactly one durable tracker document and derives its title from the 
     expect(await get('/api/diagrams')).toEqual([])
     const live = await backend.collaboration.openDirectConnection(task.id)
     expect(projectTree(live.document!).nodes.get(ROOT_ID)?.text).toBe('MC-99636')
+    expect(readTextAlign(live.document!)).toBe('center')
     const commands = new TreeCommands(live.document!)
     commands.setText(ROOT_ID, '  Починить\nотчёт Ёж  ')
     const child = commands.createChild(ROOT_ID, 'Деталь')

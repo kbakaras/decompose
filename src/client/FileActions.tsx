@@ -47,7 +47,7 @@ export function FileActions({ ref, returnFocus, reportError, session, title = ''
     const action = mode.current
     try {
       const value: DiagramFile = /\.graphml$/i.test(selected.name)
-        ? { format: 'decompose', version: 1, ...await readYedFile(selected), settings: { textAlign: 'left' } }
+        ? { format: 'decompose', version: 1, ...await readYedFile(selected), settings: { textAlign: action === 'new' ? 'center' : 'left' } }
         : parseDiagramFile(await readDiagramText(selected))
       lifetime.current?.signal.throwIfAborted()
       if (action === 'replace') { setFile(value); setFileName(selected.name) } else await importFile(value, action)
@@ -90,15 +90,17 @@ export function FileActions({ ref, returnFocus, reportError, session, title = ''
         if (selected) void selectFile(selected); else returnFocus()
       }} />
     {showProgress && busy && !file && <div className="navigation-notice" role="status">Загружаем файл…</div>}
-    {session && <dialog ref={dialog} className="diagrams-dialog file-dialog" aria-label="Заменить содержимое схемы"
+    {session && <dialog ref={dialog} className="diagrams-dialog file-dialog confirmation-dialog" aria-labelledby="replace-heading"
       onClose={returnFocus} onCancel={event => { if (busy) event.preventDefault(); else setFile(null) }}>
-      <h2>Заменить содержимое схемы</h2>
+      <h2 id="replace-heading">Заменить содержимое схемы</h2>
       <p>Заменить «{title}» содержимым «{fileName}»? Адрес и привязка к задаче сохранятся.</p>
-      <p>Подключённые вкладки будут заблокированы до синхронизации. История undo будет сброшена; старые offline-правки не объединятся с новым деревом.</p>
-      <button disabled={busy} onClick={() => { try { downloadDiagram(session.doc, title) } catch (error) { setError(String(error)) } }}>Скачать прежнюю схему</button>{' '}
-      <button disabled={busy || !file} onClick={() => { if (file && !running.current) void importFile(file, 'replace') }}>{busy ? 'Ожидаем синхронизацию' : 'Заменить схему'}</button>
+      <p>На время синхронизации редактирование в подключённых вкладках будет заблокировано. История отмены будет сброшена. Несинхронизированные изменения, сделанные без подключения к серверу, не будут объединены с новым деревом.</p>
       {error && <p role="alert">{error}</p>}
-      <button disabled={busy} onClick={() => setFile(null)}>Отмена</button>
+      <div className="dialog-actions">
+        <button disabled={busy} onClick={() => { try { downloadDiagram(session.doc, title) } catch (error) { setError(String(error)) } }}>Скачать прежнюю схему</button>
+        <button className="danger-button" disabled={busy || !file} onClick={() => { if (file && !running.current) void importFile(file, 'replace') }}>{busy ? 'Ожидаем синхронизацию' : 'Заменить схему'}</button>
+        <button disabled={busy} onClick={() => setFile(null)}>Отмена</button>
+      </div>
     </dialog>}
   </>
 }

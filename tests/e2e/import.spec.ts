@@ -234,6 +234,13 @@ test('replaces a tracker tree directly from GraphML, keeps its URL and binding a
     await (await chooser).setFiles(fixture)
     const confirm = page.getByRole('button', { name: 'Заменить схему', exact: true })
     await expect(confirm).toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Заменить содержимое схемы', exact: true })
+    await expect(dialog).toHaveClass(/confirmation-dialog/)
+    await expect(dialog.getByRole('heading', { name: 'Заменить содержимое схемы', exact: true })).toHaveCSS('font-size', '20px')
+    await expect(dialog.getByText(/На время синхронизации/)).toHaveCSS('font-size', '14px')
+    expect(await dialog.textContent()).not.toContain(';')
+    await expect(confirm).toHaveCSS('color', 'rgb(143, 48, 40)')
+    await expect(dialog.getByRole('button').allTextContents()).resolves.toEqual(['Скачать прежнюю схему', 'Заменить схему', 'Отмена'])
     await expect(page.locator('[data-cell-id="root"]')).toHaveAttribute('data-text', 'GRAPHML-101')
     await confirm.click()
     for (const client of [page, peer]) {

@@ -33,6 +33,30 @@ test('scheme actions live in the picker, cancellation restores keyboard focus', 
   await expect(page.locator('main')).toBeFocused()
 })
 
+test('deletion confirmation uses the application dialog and destructive button styles', async ({ page }) => {
+  await page.goto(await testDiagram(page)); await ready(page)
+  await picker(page)
+  const pickerDelete = page.getByRole('button', { name: 'Удалить схему', exact: true })
+  const expected = await pickerDelete.evaluate(element => {
+    const style = getComputedStyle(element)
+    return { fontFamily: style.fontFamily, fontSize: style.fontSize, borderRadius: style.borderRadius, color: style.color }
+  })
+  await pickerDelete.click()
+  const dialog = page.getByRole('dialog', { name: 'Удалить схему', exact: true })
+  const confirm = dialog.getByRole('button', { name: 'Удалить для всех', exact: true })
+  await expect(dialog).toHaveClass(/confirmation-dialog/)
+  await expect(dialog.getByRole('heading', { name: 'Удалить схему', exact: true })).toHaveCSS('font-size', '20px')
+  await expect(dialog.getByText('«Тестовая схема»', { exact: true })).toHaveCSS('font-size', '14px')
+  await expect(dialog).toContainText('Нет ни корзины, ни возможности отменить удаление.')
+  expect(await dialog.textContent()).not.toContain(';')
+  await expect(dialog.locator('.dialog-actions')).toHaveCSS('justify-content', 'flex-end')
+  await expect(confirm).toHaveCSS('font-family', expected.fontFamily)
+  await expect(confirm).toHaveCSS('font-size', expected.fontSize)
+  await expect(confirm).toHaveCSS('border-radius', expected.borderRadius)
+  await expect(confirm).toHaveCSS('color', expected.color)
+  await expect(dialog.getByRole('button').allTextContents()).resolves.toEqual(['Удалить для всех', 'Отмена'])
+})
+
 test('deletion freezes peers, clears document caches and prevents offline resurrection', async ({ page, browser }) => {
   const id = await create(page)
   const onlineContext = await namedContext(browser), offlineContext = await namedContext(browser)

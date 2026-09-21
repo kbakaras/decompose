@@ -246,10 +246,13 @@ export function Application() {
       <button disabled={!navigator.onLine} onClick={() => { void navigate(deletedTracker.href, 'push', false, undefined, false, deletedTracker.id) }}>Создать новое дерево</button>
       <button onClick={() => setDeletedTracker(null)}>Закрыть</button>
     </div>}
-    <dialog ref={leaveDialog} className="diagrams-dialog" aria-label="Несохранённый файл" onCancel={() => setLeave(null)}>
+    <dialog ref={leaveDialog} className="diagrams-dialog confirmation-dialog" aria-labelledby="leave-heading" onCancel={() => setLeave(null)}>
+      <h2 id="leave-heading">Несохранённый файл</h2>
       <p>Файл не сохранён. При уходе последние изменения могут быть потеряны.</p>
-      <button onClick={() => setLeave(null)}>Остаться</button>{' '}
-      <button onClick={() => leave?.()}>Уйти без сохранения</button>
+      <div className="dialog-actions">
+        <button className="danger-button" onClick={() => leave?.()}>Уйти без сохранения</button>
+        <button onClick={() => setLeave(null)}>Остаться</button>
+      </div>
     </dialog>
     {error && <div className="notice navigation-error" role="alert"><span>Не удалось открыть схему: {error}</span>
       <button aria-label="Закрыть сообщение" onClick={() => setError('')}>×</button></div>}

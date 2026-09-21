@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createBackend } from '../../src/server/app'
-import { projectTree, ROOT_ID } from '../../src/domain'
+import { projectTree, readTextAlign, ROOT_ID } from '../../src/domain'
 
 it('imports atomically, revalidates untrusted input, enforces route-specific limits and survives restart', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'decompose-import-'))
@@ -34,6 +34,7 @@ it('imports atomically, revalidates untrusted input, enforces route-specific lim
     expect(created.title).toBe('a')
     const imported = await backend.collaboration.openDirectConnection(created.id)
     const tree = projectTree(imported.document!)
+    expect(readTextAlign(imported.document!)).toBe('center')
     expect(tree.nodes.size).toBe(3)
     const children = tree.children.get(ROOT_ID)!
     expect(tree.nodes.get(children[0])?.status).toBe('done')

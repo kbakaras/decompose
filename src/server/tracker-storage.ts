@@ -131,7 +131,7 @@ export class TrackerStorage extends SQLite {
       const id = createUuid()
       const updatedAt = Date.now()
       try {
-        initializeDocument(doc)
+        initializeDocument(doc, 'center')
         getStructures(doc).nodes.get(ROOT_ID)!.set('text', key)
         this.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
         this.db!.prepare('INSERT INTO tracker_diagrams (tracker_key, document_id, title, search_text, updated_at) VALUES (?, ?, ?, ?, ?)')

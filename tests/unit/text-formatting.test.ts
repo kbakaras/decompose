@@ -67,6 +67,20 @@ it('defaults to left without writes, validates alignment and supports first-chan
   } finally { history.destroy(); doc.destroy(); other.history.destroy(); other.doc.destroy() }
 })
 
+it('stores center for a new document without changing the fallback for existing documents', () => {
+  const legacy = new Y.Doc(), created = new Y.Doc()
+  try {
+    initializeDocument(legacy)
+    initializeDocument(created, 'center')
+    expect(readTextAlign(legacy)).toBe('left')
+    expect(getStructures(legacy).settings.has('textAlign')).toBe(false)
+    expect(readTextAlign(created)).toBe('center')
+    expect(getStructures(created).settings.get('textAlign')).toBe('center')
+    initializeDocument(created, 'left')
+    expect(readTextAlign(created)).toBe('center')
+  } finally { legacy.destroy(); created.destroy() }
+})
+
 it('converges for concurrent settings and multiline text edits in either update order', () => {
   fc.assert(fc.property(fc.array(fc.boolean(), { minLength: 1, maxLength: 20 }), fc.array(fc.boolean(), { minLength: 1, maxLength: 20 }), (first, second) => {
     const base = setup()

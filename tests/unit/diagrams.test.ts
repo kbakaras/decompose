@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { createBackend } from '../../src/server/app'
-import { getStructures, projectTree, ROOT_ID, TreeCommands } from '../../src/domain'
+import { getStructures, projectTree, readTextAlign, ROOT_ID, TreeCommands } from '../../src/domain'
 import { isDiagramId, type DiagramSummary } from '../../src/shared/diagrams'
 
 it('creates isolated durable diagrams, lists live root titles and preserves independent documents across restart', async () => {
@@ -33,6 +33,8 @@ it('creates isolated durable diagrams, lists live root titles and preserves inde
     expect(created[0].title).toBe('Одинаковое название схемы')
     const first = await backend.collaboration.openDirectConnection(created[0].id)
     const second = await backend.collaboration.openDirectConnection(created[1].id)
+    expect(readTextAlign(first.document!)).toBe('center')
+    expect(readTextAlign(second.document!)).toBe('center')
     expect(projectTree(first.document!).nodes.size).toBe(1)
     expect(projectTree(second.document!).nodes.size).toBe(1)
     await first.transact(doc => { getStructures(doc).nodes.get(ROOT_ID)!.set('text', 'Переименовано через корень') })

@@ -52,8 +52,8 @@ export function createNodeRecord(
   return node
 }
 
-export function initializeDocument(doc: Y.Doc): void {
-  const { meta, nodes, orders } = getStructures(doc)
+export function initializeDocument(doc: Y.Doc, textAlign?: TextAlign): void {
+  const { meta, nodes, orders, settings } = getStructures(doc)
 
   doc.transact(() => {
     if (meta.get('schemaVersion') === undefined || meta.get('schemaVersion') === 1) {
@@ -67,6 +67,9 @@ export function initializeDocument(doc: Y.Doc): void {
     }
     if (!orders.has(ROOT_ID)) {
       orders.set(ROOT_ID, new Y.Array<OrderEntry>())
+    }
+    if (textAlign !== undefined && settings.get('textAlign') === undefined) {
+      settings.set('textAlign', textAlign)
     }
   }, 'initialize-document')
 }

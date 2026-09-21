@@ -24,7 +24,10 @@ it('validates version, settings, cycles, duplicates and size without the yEd nod
   const nodes = Array.from({ length: 1001 }, (_, i) => ({ id: String(i), text: '', status: 'open', children: i === 0 ? Array.from({ length: 1000 }, (_, j) => String(j + 1)) : [] }))
   const file = { format: 'decompose', version: 1, nodes, settings: { textAlign: 'left' } }
   expect(validateDiagramFile(file).nodes).toHaveLength(1001)
-  const imported = createImportedDocument(file); expect(projectTree(imported).nodes.size).toBe(1001); imported.destroy()
+  const imported = createImportedDocument(file, 'center')
+  expect(projectTree(imported).nodes.size).toBe(1001)
+  expect(snapshotDiagram(imported).settings.textAlign).toBe('left')
+  imported.destroy()
   for (const invalid of [{ ...file, version: 2 }, { ...file, settings: {} }, { ...file, nodes: [...nodes, nodes[0]] },
     { ...file, nodes: [{ ...nodes[0], children: ['0'] }] }]) expect(() => validateDiagramFile(invalid)).toThrow()
   expect(() => parseDiagramFile('{')).toThrow('JSON')

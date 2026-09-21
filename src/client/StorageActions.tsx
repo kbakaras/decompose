@@ -24,7 +24,7 @@ async function confirmRemoval(session: Session, operation: string, commit: () =>
     try {
       response = await fetch(appUrl(`api/diagrams/${session.id}/generation`), { cache: 'no-store', signal: AbortSignal.timeout(5000) })
     } catch {
-      throw new Error('Не удалось подтвердить результат удаления. Не повторяй операцию до восстановления связи; записанный файл остаётся доступным.')
+      throw new Error('Не удалось подтвердить результат удаления. Не повторяй операцию до восстановления связи. Записанный файл остаётся доступным.')
     }
     if (response.status === 410) {
       const deleted: DeletedDiagram = await response.json()
@@ -143,19 +143,23 @@ export function StorageActions({ mode, close, returnFocus, session, title, reque
     }
   }
   const heading = mode === 'delete' ? 'Удалить схему' : transfer ? 'Перенести схему в файл' : 'Сохранить как внутреннюю схему'
-  return <dialog ref={dialog} className="diagrams-dialog file-dialog" aria-label={heading}
+  return <dialog ref={dialog} className="diagrams-dialog file-dialog confirmation-dialog" aria-labelledby="storage-action-heading"
     onClose={returnFocus}
     onCancel={event => { if (busy) event.preventDefault(); else close() }}>
-    <h2>{heading}</h2>
+    <h2 id="storage-action-heading">{heading}</h2>
     <p>«{title}»</p>
     {transfer && <>
-      <p>Сохранить на диск, удалить внутреннюю схему и продолжить редактирование файла.</p>
-      {!canSaveDiskFile() && <p>Перенос требует HTTPS или локального запуска и браузера с прямой записью. Здесь можно скачать копию и отдельно удалить схему.</p>}
+      <p>Схема будет сохранена в файл и удалена из внутреннего хранилища. После этого редактирование продолжится в файле.</p>
+      {!canSaveDiskFile() && <p>Для переноса нужна работа через HTTPS или localhost в браузере с поддержкой прямой записи в файл. В этом режиме можно скачать копию, а затем отдельно удалить схему.</p>}
     </>}
-    {mode === 'internal' && <p>Текущие изменения сохранятся на диск, затем откроется независимая внутренняя схема. Файл останется на диске, но редактор отключится от него. Совместная файловая сессия завершится; участники не перейдут во внутреннюю схему автоматически.</p>}
-    {(mode === 'delete' || transfer) && <p>Схема будет удалена из системы для всех участников, без корзины и undo. Подключённые вкладки завершат синхронизацию; старые offline-правки не восстановят схему.{transfer && ' Удаление выполняется только после записи файла. Другие участники не переходят в файловую сессию автоматически.'}</p>}
+    {mode === 'internal' && <p>Текущие изменения будут сохранены в файл. Затем откроется независимая внутренняя схема. Исходный файл останется на диске, но редактор больше не будет с ним связан. Совместная файловая сессия завершится. Другие участники не перейдут во внутреннюю схему автоматически.</p>}
+    {(mode === 'delete' || transfer) && <p>Схема будет удалена из системы для всех участников. Нет ни корзины, ни возможности отменить удаление. Перед удалением приложение синхронизирует изменения из подключённых вкладок. Несинхронизированные изменения, сделанные без подключения к серверу, не восстановят схему.{transfer && ' Удаление выполняется только после записи файла. Другие участники не переходят в файловую сессию автоматически.'}</p>}
     {error && <p role="alert">{error}</p>}
-    <button disabled={busy || transfer && (!removable || !canSaveDiskFile()) || mode === 'internal' && !navigator.onLine} onClick={() => { void execute() }}>{busy ? 'Выполняем' : mode === 'delete' ? 'Удалить для всех' : transfer ? 'Перенести в файл' : createdId.current ? 'Открыть созданную схему' : 'Сохранить и перейти'}</button>{' '}
-    <button disabled={busy} onClick={close}>Отмена</button>
+    <div className="dialog-actions">
+      <button className={mode === 'delete' ? 'delete-button' : undefined}
+        disabled={busy || transfer && (!removable || !canSaveDiskFile()) || mode === 'internal' && !navigator.onLine}
+        onClick={() => { void execute() }}>{busy ? 'Выполняем' : mode === 'delete' ? 'Удалить для всех' : transfer ? 'Перенести в файл' : createdId.current ? 'Открыть созданную схему' : 'Сохранить и перейти'}</button>
+      <button disabled={busy} onClick={close}>Отмена</button>
+    </div>
   </dialog>
 }
