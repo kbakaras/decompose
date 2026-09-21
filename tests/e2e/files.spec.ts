@@ -108,6 +108,7 @@ test('owner and guest download a copy directly without changing the file or endi
     for (const client of [page, guest]) {
       const url = client.url()
       await client.getByRole('button', { name: 'Схемы', exact: true }).click()
+      await expect(client.getByRole('region', { name: 'Текущая схема' }).locator('.storage-kind')).toHaveCSS('background-color', 'rgb(228, 239, 245)')
       const files = client.getByRole('tab', { name: 'Файлы', exact: true })
       await expect(files).toHaveAttribute('aria-selected', 'true')
       await expect(files).toBeFocused()

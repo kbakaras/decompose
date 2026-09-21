@@ -1,4 +1,4 @@
-:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; color: #333d35; background: #f6f4ed; font-synthesis: none; }
+:root { --tracker-mode-bg: #e0efd9; --tracker-mode-border: #a9c49c; --tracker-mode-color: #36542f; --file-mode-bg: #e4eff5; --file-mode-border: #9fb9c9; --file-mode-color: #294e65; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; color: #333d35; background: #f6f4ed; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; }
 button, textarea, input { font: inherit; }
@@ -53,6 +53,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .diagram-trigger { text-align: left; background: transparent; }
 .diagram-trigger:focus-visible { outline-offset: -2px; }
 .diagram-trigger:hover { background: #e8e9df; }.diagram-trigger span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diagram-trigger.tracker-trigger { color: var(--tracker-mode-color); border-color: var(--tracker-mode-border); background: var(--tracker-mode-bg); }
+.diagram-trigger.tracker-trigger:hover { border-color: #91b583; background: #d5e9cd; }
 .diagrams-dialog { color: inherit; width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid #dddccf; border-radius: 10px; background: #fffefa; box-shadow: 0 15px 50px #37402725; outline: none; }
 .diagrams-dialog button:focus-visible, .diagrams-dialog a:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #587348; }
 @media (forced-colors: active) { .diagrams-dialog button:focus-visible, .diagrams-dialog a:focus-visible { outline: 2px solid Highlight; outline-offset: -3px; } }
@@ -94,7 +96,7 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .delete-button { color: #aa6953; }
 .file-trigger { padding: 0; border: 0; }
 .file-trigger:hover .file-indicator { border-color: #638da6; }
-.file-indicator { border-color: #9fb9c9; background: #e4eff5; color: #294e65; }
+.file-indicator { border-color: var(--file-mode-border); background: var(--file-mode-bg); color: var(--file-mode-color); }
 .file-mode, .file-save-state, .file-menu-arrow { flex-shrink: 0; white-space: nowrap; }
 .file-mode { font-weight: inherit; }
 .file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -150,7 +152,9 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 @media (prefers-reduced-motion: reduce) { .management-dialog { transition: none; } }
 .current-scheme { margin-top: 12px; padding: 10px; background: #fff5d6; border-radius: 6px; }
 .current-scheme-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 12px; }
-.storage-kind { flex-shrink: 0; padding: 2px 6px; border-radius: 4px; background: #e4e9dd; font-size: 11px; font-weight: 400; }
+.storage-kind { flex-shrink: 0; padding: 2px 6px; border: 1px solid #b7bcae; border-radius: 4px; background: transparent; font-size: 11px; font-weight: 400; }
+.storage-kind-tracker { color: var(--tracker-mode-color); border-color: var(--tracker-mode-border); background: var(--tracker-mode-bg); }
+.storage-kind-files { color: var(--file-mode-color); border-color: var(--file-mode-border); background: var(--file-mode-bg); }
 .current-scheme .current-scheme-name { width: 100%; min-width: 0; margin: 0; font-size: 14px; overflow-wrap: anywhere; }
 .open-scheme { margin-top: 16px; }
 .diagrams-list:focus { outline: none; }

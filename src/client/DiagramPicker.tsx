@@ -156,7 +156,7 @@ export function DiagramPicker({ id, title = '', tracker, connected, navigate, re
 
   return <>
     {renderTrigger ? renderTrigger(openPicker, open) : <h1 className={`document-title${triggerContent ? ' document-title-file' : ''}`}>
-      <button className={`diagram-trigger${triggerContent ? ' file-trigger' : ''}`} aria-label="Схемы" title={triggerContent ? undefined : `${trackerLabel(title, tracker?.trackerKey)} — выбрать схему`}
+      <button className={`diagram-trigger${triggerContent ? ' file-trigger' : tracker ? ' tracker-trigger' : ''}`} aria-label="Схемы" title={triggerContent ? undefined : `${trackerLabel(title, tracker?.trackerKey)} — выбрать схему`}
         aria-haspopup="dialog" aria-expanded={open} aria-keyshortcuts="Control+O Meta+O" onClick={openPicker}>
         {triggerContent ?? <><span>{trackerLabel(title, tracker?.trackerKey)}</span><span aria-hidden="true">▾</span></>}
       </button>
@@ -170,7 +170,7 @@ export function DiagramPicker({ id, title = '', tracker, connected, navigate, re
       </div>
       {id && <section className="current-scheme" aria-label="Текущая схема">
         <div className="current-scheme-heading">
-          <span className="storage-kind">{modeLabel}</span>
+          <span className={`storage-kind storage-kind-${currentSection}`}>{modeLabel}</span>
           <p className="current-scheme-name">{currentName}</p>
         </div>
         <fieldset className="scheme-actions" disabled={creating}>{actions?.(closeForAction)}</fieldset>
