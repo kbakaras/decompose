@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
 import { DomainError, ROOT_ID, projectTree, normalizeText, readTextAlign } from '../domain'
@@ -9,7 +9,7 @@ import { Cell, type EditState, type FlowCell } from './Cell'
 import { DiagramPicker } from './DiagramPicker'
 import { focusAfterRemoval, navigate } from './interaction'
 import { layoutTree, NODE_WIDTH, NODE_MIN_HEIGHT } from './layout'
-import { beginSiblingDrag, isSiblingDragValid, siblingDropTarget, type DragPreview } from './sibling-drag'
+import { beginTreeDrag, isTreeDragValid, treeDropTarget, type DragPreview, type Point } from './sibling-drag'
 import { browserIdentity, initials, subscribeIdentity } from './identity'
 import { summarizeParticipants } from './presence'
 import { FileActions, type FileActionsHandle } from './FileActions'
@@ -17,6 +17,7 @@ import { downloadDiagram, pickWritableFile } from './diagram-file'
 import { shareFileSession, type OpenLocalFile } from './file-session'
 import { StorageActions, type StorageAction } from './StorageActions'
 import { FileIndicator } from './FileIndicator'
+import { copySubtreeToSystemClipboard, readSubtreeClipboard, subtreeForClipboard, writeSubtreeClipboard } from './tree-clipboard'
 
 const nodeTypes = { cell: Cell }
 
@@ -129,7 +130,10 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   }, [session])
   const focusCanvas = useCallback(() => {
     // Закрытие одного диалога не должно отбирать фокус у следующего.
-    if (!editRef.current && !document.querySelector('dialog[open]')) canvas.current?.focus({ preventScroll: true })
+    if (!editRef.current && !document.querySelector('dialog[open]')) {
+      window.getSelection()?.removeAllRanges()
+      canvas.current?.focus({ preventScroll: true })
+    }
   }, [])
   useEffect(() => {
     session.setPresence('activeNode', active)
@@ -148,7 +152,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     setHeights(old => old.get(id) === height ? old : new Map(old).set(id, height))
   }, [])
   useEffect(() => {
-    if (drag?.phase === 'dragging' && !isSiblingDragValid(tree, drag.snapshot)) {
+    if (drag?.phase === 'dragging' && !isTreeDragValid(tree, drag.snapshot, drag.target)) {
       updateDrag(null)
       setNotice('Структура изменилась другим участником. Повтори перетаскивание.')
     }
@@ -378,39 +382,48 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (editRef.current) updateEdit({ ...editRef.current, draft: normalizeText(text) })
   }, [updateEdit, session])
 
+  const pointerPosition = (event: unknown): Point | null => {
+    const value = event as { clientX?: number; clientY?: number; touches?: ArrayLike<{ clientX: number; clientY: number }> }
+    const pointer = value.touches?.[0] ?? value
+    return typeof pointer.clientX === 'number' && typeof pointer.clientY === 'number'
+      ? flow.screenToFlowPosition({ x: pointer.clientX, y: pointer.clientY })
+      : null
+  }
   const startDrag = (_event: unknown, node: FlowCell) => {
     if (!session.canEdit) return
     if (node.id !== active) return
     commit()
-    const snapshot = beginSiblingDrag(projectTree(session.doc), node.id, positions, heights)
+    const snapshot = beginTreeDrag(projectTree(session.doc), node.id, positions, heights)
     if (!snapshot) return
     updateDrag({ snapshot, position: node.position, target: null, phase: 'dragging' })
-    setMessage('Перетащи выше или ниже соседних клеточек. Esc — отменить.')
+    setMessage('Перетащи карточку на нового родителя или к нужному месту в списке. Esc — отменить.')
     focusCanvas()
   }
-  const moveDrag = (_event: unknown, node: FlowCell) => {
+  const moveDrag = (event: unknown, node: FlowCell) => {
     const current = dragRef.current
     if (current?.phase !== 'dragging') return
-    updateDrag({ ...current, position: node.position, target: siblingDropTarget(current.snapshot, node.position) })
+    const pointer = pointerPosition(event)
+    updateDrag({ ...current, position: node.position, target: pointer ? treeDropTarget(current.snapshot, pointer) : null })
   }
-  const stopDrag = (_event: unknown, node: FlowCell) => {
+  const stopDrag = (event: unknown, node: FlowCell) => {
     const current = dragRef.current
     if (current?.phase !== 'dragging') return
-    const target = siblingDropTarget(current.snapshot, node.position)
-    if (!target || !isSiblingDragValid(projectTree(session.doc), current.snapshot)) {
+    const pointer = pointerPosition(event)
+    const target = pointer ? treeDropTarget(current.snapshot, pointer) : current.target
+    if (!target || !isTreeDragValid(projectTree(session.doc), current.snapshot, target)) {
       updateDrag(null)
-      setMessage('Порядок не изменён.')
+      setMessage('Структура не изменена.')
     } else {
       if (!session.identity.name) updateDrag(null)
       withIdentity(() => {
-        if (!isSiblingDragValid(projectTree(session.doc), current.snapshot)) {
+        if (!isTreeDragValid(projectTree(session.doc), current.snapshot, target)) {
           updateDrag(null)
           setNotice('Структура изменилась другим участником. Повтори перетаскивание.')
           return
         }
-        const moved = run(() => session.commands.move(node.id, current.snapshot.parentId, target.index))
+        const moved = run(() => session.commands.move(node.id, target.parentId, target.index))
         updateDrag(moved ? { ...current, position: node.position, target: null, phase: 'settling' } : null)
-        if (moved) setMessage('Порядок клеточек изменён.')
+        if (moved) setMessage(target.parentId === current.snapshot.parentId ? 'Порядок карточек изменён.' : 'Карточка перенесена к другому родителю.')
         focusCanvas()
       })
     }
@@ -421,8 +434,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     id: node.id, type: 'cell',
     position: drag?.snapshot.id === node.id ? drag.position : positions.get(node.id) ?? { x: 0, y: 0 },
     style: { opacity: positions.has(node.id) ? 1 : 0, pointerEvents: positions.has(node.id) ? 'auto' : 'none' },
-    draggable: session.canEdit && node.id === active && positions.has(node.id) && node.id !== ROOT_ID && edit?.id !== node.id && drag?.phase !== 'settling'
-      && (tree.children.get(node.parentId ?? '')?.length ?? 0) > 1,
+    draggable: session.canEdit && node.id === active && positions.has(node.id) && node.id !== ROOT_ID && edit?.id !== node.id && drag?.phase !== 'settling',
     zIndex: drag?.snapshot.id === node.id ? 1001 : 0,
     measured: { width: NODE_WIDTH, height: heights.get(node.id) ?? NODE_MIN_HEIGHT },
     selected: node.id === active,
@@ -430,21 +442,91 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       node, index: (tree.children.get(node.parentId ?? '') ?? []).indexOf(node.id),
       active: node.id === active, edit: edit?.id === node.id ? edit : null, textAlign,
       positioned: positions.has(node.id),
-      dropSide: drag?.target?.anchorId === node.id ? drag.target.side : null,
+      dropTarget: drag?.target?.anchorId === node.id ? (drag.target.kind === 'child' ? 'child' : drag.target.side) : null,
       dragging: drag?.snapshot.id === node.id,
       others: others.filter(person => person.activeNode === node.id || person.editingNode === node.id),
       onDraft, onEditorKey: editorKey, onCommit: commit, onMeasure: measure, onFollowLink: followTrackerLink,
     },
   }))
-  const edges: Edge[] = [...tree.nodes.values()].flatMap(node => node.parentId ? [{
-    id: node.id, source: node.parentId, target: node.id, type: 'smoothstep',
-    hidden: !positions.has(node.id) || !positions.has(node.parentId),
-    style: { stroke: '#bdb8aa', strokeWidth: 1.5 },
-  }] : [])
-  const dropAnchor = drag?.target ? positions.get(drag.target.anchorId) : undefined
-  const dropY = dropAnchor && drag?.target
-    ? dropAnchor.y + (drag.target.side === 'before' ? -14 : (heights.get(drag.target.anchorId) ?? NODE_MIN_HEIGHT) + 12)
+  const draggedId = drag?.phase === 'dragging' ? drag.snapshot.id : null
+  const previewParentId = drag?.phase === 'dragging' ? drag.target?.parentId : null
+  const edges: Edge[] = [...tree.nodes.values()].flatMap(node => {
+    const preview = node.id === draggedId
+    const source = preview ? previewParentId : node.parentId
+    return source ? [{
+      id: node.id, source, target: node.id, type: 'smoothstep',
+      hidden: !positions.has(node.id) || !positions.has(source),
+      className: preview ? 'edge-preview' : undefined,
+      style: { stroke: preview ? '#687c5f' : '#bdb8aa', strokeWidth: preview ? 2 : 1.5 },
+    }] : []
+  })
+  const siblingDrop = drag?.target?.kind === 'sibling' ? drag.target : null
+  const dropAnchor = siblingDrop ? positions.get(siblingDrop.anchorId) : undefined
+  const dropY = dropAnchor && siblingDrop
+    ? dropAnchor.y + (siblingDrop.side === 'before' ? -14 : (heights.get(siblingDrop.anchorId) ?? NODE_MIN_HEIGHT) + 12)
     : 0
+
+  const nativeClipboardTarget = (target: EventTarget | null) => (
+    target instanceof HTMLElement && !!target.closest('button, a, input, textarea, select, [contenteditable="true"]')
+  )
+  const hasTextSelection = () => window.getSelection()?.isCollapsed === false
+  const copyActive = (write: (snapshot: ReturnType<typeof subtreeForClipboard>) => void) => {
+    try {
+      write(subtreeForClipboard(projectTree(session.doc), active))
+      setMessage(active === ROOT_ID ? 'Схема скопирована.' : 'Поддерево скопировано.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    }
+  }
+  const cutActive = (write: (snapshot: ReturnType<typeof subtreeForClipboard>) => void) => {
+    if (!session.canEdit) { setMessage('Схема открыта только для просмотра.'); return }
+    if (active === ROOT_ID) { setMessage('Корневую карточку нельзя вырезать.'); return }
+    if (!session.identity.name) {
+      const epoch = actionEpoch.current
+      void requestIdentity().then(accepted => {
+        if (accepted && epoch === actionEpoch.current && session.identity.name) setMessage('Теперь повтори Ctrl+X.')
+      })
+      return
+    }
+    const before = projectTree(session.doc)
+    try { write(subtreeForClipboard(before, active)) }
+    catch (error) { setNotice(error instanceof Error ? error.message : String(error)); return }
+    if (run(() => session.commands.deleteSubtree(active))) {
+      const after = projectTree(session.doc)
+      setActive(focusAfterRemoval(before, after, active))
+      setMessage('Поддерево вырезано.')
+      focusCanvas()
+    }
+  }
+  const copyToClipboard = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (!ready || nativeClipboardTarget(event.target) || editRef.current || dragRef.current || hasTextSelection()) return
+    event.preventDefault()
+    event.stopPropagation()
+    copyActive(snapshot => writeSubtreeClipboard(event.clipboardData, snapshot))
+  }
+  const cutToClipboard = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (!ready || nativeClipboardTarget(event.target) || editRef.current || dragRef.current || hasTextSelection()) return
+    event.preventDefault()
+    event.stopPropagation()
+    cutActive(snapshot => writeSubtreeClipboard(event.clipboardData, snapshot))
+  }
+  const pasteFromClipboard = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (!ready || nativeClipboardTarget(event.target) || editRef.current || dragRef.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (!session.canEdit) { setMessage('Схема открыта только для просмотра.'); return }
+    let snapshot
+    try { snapshot = readSubtreeClipboard(event.clipboardData) }
+    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return }
+    withIdentity(() => {
+      const inserted = run(() => {
+        const id = session.commands.insertSubtree(active, snapshot)
+        setActive(id)
+      })
+      if (inserted) setMessage('Поддерево вставлено.')
+      focusCanvas()
+    })
+  }
 
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!ready || editRef.current || event.nativeEvent.isComposing) return
@@ -460,6 +542,15 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
     const ctrl = event.ctrlKey || event.metaKey
     const key = event.key.toLowerCase()
+    if (ctrl && !event.altKey && (event.code === 'KeyC' || key === 'c' || event.code === 'KeyX' || key === 'x')) {
+      if (hasTextSelection()) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.code === 'KeyX' || key === 'x') cutActive(copySubtreeToSystemClipboard)
+      else copyActive(copySubtreeToSystemClipboard)
+      focusCanvas()
+      return
+    }
     if (ctrl && !event.altKey && (event.code === 'KeyZ' || key === 'z' || event.code === 'KeyY' || key === 'y')) {
       event.preventDefault()
       event.stopPropagation()
@@ -615,7 +706,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         </div>
       </form>
     </dialog>
-    <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown} inert={switching}
+    <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown}
+      onCopy={copyToClipboard} onCut={cutToClipboard} onPaste={pasteFromClipboard} inert={switching}
       aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-diagram-id={session.id} data-ready={String(ready && layoutReady && !switching)}>
       {ready ? <ReactFlow<FlowCell> nodes={nodes} edges={edges} nodeTypes={nodeTypes}
         style={{ opacity: layoutReady ? 1 : 0, pointerEvents: layoutReady ? 'auto' : 'none' }}
@@ -652,6 +744,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Shift + Tab', 'Outdent'], ['F2 / двойной клик', 'Редактировать текст'],
           ...(session.tracker ? [['F4', 'Параметры карточки'], ['Ctrl + Enter', 'Перейти к связанной задаче']] : []),
           ['Space', 'Открыто / готово'], ['Delete', 'Удалить поддерево'],
+          ['Ctrl + C / X / V', 'Копировать / вырезать / вставить поддерево'],
           ['Enter / Ctrl + Enter', 'В редакторе: сохранить'], ['Esc в редакторе', 'Отменить draft'],
           ['Shift + Enter', 'В редакторе: перенос строки'],
           ['Esc на схеме', 'Вернуться к панели действий'],
@@ -659,7 +752,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Ctrl + O', 'Выбрать схему для редактирования'],
           ['Ctrl + S', 'Сохранить схему в файл'],
         ].map(([key, label]) => <div className="help-row" key={key}><span>{label}</span><kbd>{key}</kbd></div>)}
-        <p>Мышью: клик активирует клеточку. Тяни активную клеточку, чтобы изменить порядок среди детей одного родителя; неактивную — чтобы переместить холст без смены выделения. Esc отменяет перестановку.</p>
+        <p>Мышью: клик активирует карточку. Тяни активную карточку на другую, чтобы сделать её дочерней, или к краю карточки, чтобы выбрать место среди соседей. Неактивная карточка перемещает холст без смены выделения. Esc отменяет перенос.</p>
         <p>На macOS вместо Ctrl можно использовать ⌘. Текст клеточки сохраняется целиком.</p>
         <p>В редакторе undo/redo меняет только draft. На схеме — твои действия в этой вкладке. После перезагрузки история очищается.</p>
         <button onClick={() => { setHelp(false); focusCanvas() }}>Вернуться к схеме</button>

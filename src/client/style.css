@@ -148,6 +148,8 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .cell-draggable { user-select: none; }
 .react-flow__pane.dragging .react-flow__node-cell, .react-flow__pane.dragging .cell { cursor: grabbing; }
 .cell-dragging { --cell-raised-shadow: 0 8px 24px #41472e25; }
+.cell-drop-child { border-color: #337548; box-shadow: 0 0 0 3px #4e93635c, 0 6px 18px #315a3c28; }
+.react-flow__edge.edge-preview .react-flow__edge-path { stroke-dasharray: 7 5; }
 .drop-indicator { position: absolute; top: 0; left: 0; z-index: 3000; height: 3px; border-radius: 2px; background: #ce870e; pointer-events: none; box-shadow: 0 0 0 2px #fffefa; }
 .cell-with-presence { outline: 1px dashed var(--presence-color); outline-offset: 7px; }
 .react-flow__handle { background: #b7bcae; border: 2px solid #f6f4ed; width: 7px; height: 7px; pointer-events: none; cursor: inherit; }

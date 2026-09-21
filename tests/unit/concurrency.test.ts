@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import {
   ROOT_ID,
   TreeCommands,
+  captureSubtree,
   initializeDocument,
   projectTree,
 } from '../../src/domain'
@@ -95,6 +96,38 @@ describe('concurrent tree operations', () => {
 
     const tree = projectTree(expectConvergence(left, right))
     expect(tree.nodes.get(newChild)).toMatchObject({ parentId: ROOT_ID, recovered: true })
+  })
+
+  it('keeps a cut snapshot fixed while recovering a child created concurrently', () => {
+    const { doc, first } = baseTree()
+    const left = cloneDocument(doc)
+    const right = cloneDocument(doc)
+    const snapshot = captureSubtree(projectTree(left), first)
+
+    new TreeCommands(left, sequentialIds('left')).deleteSubtree(first)
+    const lateChild = new TreeCommands(right, sequentialIds('right')).createChild(first, 'Поздний ребёнок')
+    const merged = expectConvergence(left, right)
+    const tree = projectTree(merged)
+    expect(tree.nodes.get(lateChild)).toMatchObject({ parentId: ROOT_ID, recovered: true })
+    expect(snapshot.nodes.some(node => node.id === lateChild)).toBe(false)
+
+    const copy = new TreeCommands(merged, sequentialIds('copy')).insertSubtree(ROOT_ID, snapshot)
+    expect(projectTree(merged).children.get(copy)).toHaveLength(1)
+    assertTreeInvariants(projectTree(merged))
+  })
+
+  it('converges when a subtree is pasted while its destination is moved', () => {
+    const { doc, first, second } = baseTree()
+    const snapshot = captureSubtree(projectTree(doc), first)
+    const left = cloneDocument(doc)
+    const right = cloneDocument(doc)
+
+    const copy = new TreeCommands(left, sequentialIds('copy')).insertSubtree(second, snapshot)
+    new TreeCommands(right, sequentialIds('right')).move(second, first, 0)
+
+    const tree = projectTree(expectConvergence(left, right))
+    expect(tree.nodes.get(copy)?.parentId).toBe(second)
+    expect(tree.children.get(copy)).toHaveLength(1)
   })
 
   it('keeps one whole text after concurrent cell edits', () => {

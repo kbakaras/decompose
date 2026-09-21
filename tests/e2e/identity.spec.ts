@@ -232,7 +232,7 @@ for (const stale of [false, true]) test(`guest drag waits for a name and ${stale
       const to = (await cell(page, a).boundingBox())!
       await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
       await page.mouse.down()
-      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2 - 20, { steps: 15 })
+      await page.mouse.move(to.x + to.width / 2, to.y - 8, { steps: 15 })
       await expect(page.getByTestId('drop-indicator')).toBeVisible()
       await page.mouse.up()
       await expect(profile(page)).toBeVisible()

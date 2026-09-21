@@ -11,7 +11,7 @@ export interface CellData extends Record<string, unknown> {
   textAlign: TextAlign
   edit: EditState | null
   positioned: boolean
-  dropSide: 'before' | 'after' | null
+  dropTarget: 'before' | 'after' | 'child' | null
   dragging: boolean
   others: Participant[]
   onDraft: (text: string) => void
@@ -61,9 +61,10 @@ export const Cell = memo(function Cell({ data, draggable }: NodeProps<FlowCell>)
     node.recovered ? 'Перемещено после объединения изменений' : '',
   ].filter(Boolean).join('. ')
   return <div ref={element}
-    className={`cell ${data.active ? 'cell-active' : ''} ${node.status === 'done' ? 'cell-done' : ''} ${editing ? 'cell-editing' : ''} ${node.targetTrackerKey ? 'cell-linked' : ''} ${data.dropSide ? `cell-drop-${data.dropSide}` : ''} ${data.dragging ? 'cell-dragging' : ''} ${draggable ? 'cell-draggable' : ''} ${data.others.length ? 'cell-with-presence' : ''}`}
+    className={`cell ${data.active ? 'cell-active' : ''} ${node.status === 'done' ? 'cell-done' : ''} ${editing ? 'cell-editing' : ''} ${node.targetTrackerKey ? 'cell-linked' : ''} ${data.dropTarget ? `cell-drop-${data.dropTarget}` : ''} ${data.dragging ? 'cell-dragging' : ''} ${draggable ? 'cell-draggable' : ''} ${data.others.length ? 'cell-with-presence' : ''}`}
     style={{ '--presence-color': data.others[0]?.color, '--cell-text-align': data.textAlign } as CSSProperties}
     data-layout-ready={String(data.positioned)}
+    data-draggable={String(draggable)}
     data-cell-id={node.id} data-parent-id={node.parentId ?? ''} data-order={data.index}
     data-status={node.status} data-active={String(data.active)} data-text={node.text} data-tracker-link={node.targetTrackerKey ?? ''}
     data-editing-by={editingBy} title={selectedBy || undefined} aria-label={`${text}. ${details}`}>

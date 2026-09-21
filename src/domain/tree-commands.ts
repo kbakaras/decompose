@@ -21,12 +21,13 @@ import {
   projectTree,
   type TreeProjection,
 } from './projection'
+import { validateSubtreeSnapshot, type SubtreeSnapshot } from './subtree'
 
 export type IdFactory = () => string
 
 export class CommandOrigin {
   constructor(
-    public readonly kind: 'set-text' | 'set-tracker-link' | 'toggle-status' | 'move-node' | 'delete-subtree' | 'create-node' | 'set-text-align',
+    public readonly kind: 'set-text' | 'set-tracker-link' | 'toggle-status' | 'move-node' | 'delete-subtree' | 'create-node' | 'paste-subtree' | 'set-text-align',
     public readonly nodeId: NodeId,
   ) {}
 }
@@ -198,6 +199,61 @@ export class TreeCommands {
         deletions.set(`${operationId}:${id}`, id)
       }
     }, new CommandOrigin('delete-subtree', nodeId))
+  }
+
+  insertSubtree(parentId: NodeId, value: SubtreeSnapshot): NodeId {
+    const tree = projectTree(this.doc)
+    this.assertLiveNode(tree, parentId)
+    const snapshot = validateSubtreeSnapshot(value)
+    const { nodes, orders, deletions } = getStructures(this.doc)
+    const ids = new Map<string, NodeId>()
+    const usedIds = new Set<NodeId>()
+    for (const node of snapshot.nodes) {
+      let id = this.uniqueId('node')
+      while (usedIds.has(id)) id = this.uniqueId('node')
+      ids.set(node.id, id)
+      usedIds.add(id)
+    }
+
+    const placements = new Map<string, Placement>()
+    placements.set(snapshot.rootId, { parentId, placementId: this.uniqueId('placement') })
+    for (const node of snapshot.nodes) {
+      for (const child of node.children) {
+        placements.set(child, {
+          parentId: ids.get(node.id)!,
+          placementId: this.uniqueId('placement'),
+        })
+      }
+    }
+
+    const rootId = ids.get(snapshot.rootId)!
+    const birthMarkers = snapshot.nodes.map(node => `birth:${ids.get(node.id)!}`)
+    this.doc.transact(() => {
+      for (const node of snapshot.nodes) {
+        const id = ids.get(node.id)!
+        const placement = placements.get(node.id)!
+        nodes.set(id, createNodeRecord(node.text, node.status, placement, node.targetTrackerKey))
+        const order = new Y.Array<OrderEntry>()
+        order.push(node.children.map(child => ({
+          nodeId: ids.get(child)!,
+          placementId: placements.get(child)!.placementId,
+        })))
+        orders.set(id, order)
+        deletions.set(`birth:${id}`, id)
+      }
+    }, 'seed-subtree')
+
+    this.doc.transact(() => {
+      this.materializeRecoveredSiblings(tree, parentId)
+      for (const marker of birthMarkers) deletions.delete(marker)
+      const rootPlacement = placements.get(snapshot.rootId)!
+      this.requireOrder(parentId).push([{
+        nodeId: rootId,
+        placementId: rootPlacement.placementId,
+      }])
+    }, new CommandOrigin('paste-subtree', rootId))
+
+    return rootId
   }
 
   private createAt(parentId: NodeId, index: number, text: string): NodeId {

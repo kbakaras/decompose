@@ -140,11 +140,37 @@ async function dragTo(page: Page, sourceId: string, targetId: string, side: 'bef
   await page.mouse.move(startX, startY)
   await page.mouse.down()
   await page.mouse.move(startX, startY + 8, { steps: 3 })
-  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2 - from.height / 2 + startY - from.y + (side === 'before' ? -20 : 20), { steps: 15 })
+  await page.mouse.move(to.x + to.width / 2, side === 'before' ? to.y - 10 : to.y + to.height + 10, { steps: 15 })
   await expect(cell(page, targetId)).toHaveClass(new RegExp(`cell-drop-${side}`))
   await expect(page.getByTestId('drop-indicator')).toBeVisible()
   await expect(source).toHaveClass(/cell-dragging/)
   await expect(source.locator('.cell-text')).toHaveCSS('cursor', 'move')
+}
+
+async function dragAsChild(page: Page, sourceId: string, targetId: string) {
+  await page.getByRole('button', { name: 'Вся схема' }).click()
+  const source = cell(page, sourceId)
+  const target = cell(page, targetId)
+  const originalParentId = (await source.getAttribute('data-parent-id'))!
+  await source.click()
+  await expect(source).toHaveAttribute('data-draggable', 'true')
+  await expect(source).toHaveClass(/cell-draggable/)
+  await source.click({ trial: true })
+  await target.click({ trial: true })
+  const from = (await source.boundingBox())!
+  const to = (await target.boundingBox())!
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 + 8, { steps: 3 })
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 15 })
+  await expect(target).toHaveClass(/cell-drop-child/)
+  await expect(page.getByTestId('drop-indicator')).toHaveCount(0)
+  const preview = page.locator('.react-flow__edge.edge-preview')
+  await expect(preview).toHaveCount(1)
+  await expect(preview).toHaveAttribute('aria-label', `Edge from ${targetId} to ${sourceId}`)
+  if (originalParentId !== targetId) {
+    await expect(page.getByLabel(`Edge from ${originalParentId} to ${sourceId}`)).toHaveCount(0)
+  }
 }
 
 test('decorative handles do not intercept the pointer or offer connections', async ({ page }) => {
@@ -180,13 +206,16 @@ test('decorative handles do not intercept the pointer or offer connections', asy
   }
 })
 
-test('canvas, root and a non-reorderable cell share pan cursors and move the viewport', async ({ page }) => {
+test('canvas, root and inactive cards pan, while an active single child is draggable', async ({ page }) => {
   await open(page)
   await cell(page, 'root').click()
   await create(page, 'Tab', 'Проверка указателя холста')
   const onlyChild = await create(page, 'Tab', 'Единственный ребёнок')
   const pane = page.locator('.react-flow__pane')
   const viewport = page.locator('.react-flow__viewport')
+  await expect(cell(page, onlyChild).locator('.cell-text')).toHaveCSS('cursor', 'move')
+  await expect(cell(page, onlyChild)).toHaveClass(/cell-draggable/)
+  await cell(page, 'root').click()
   for (const id of ['root', onlyChild, null]) {
     await page.getByRole('button', { name: 'Вся схема' }).click()
     const target = id ? cell(page, id).locator('.cell-text') : pane
@@ -331,6 +360,43 @@ test('mouse reorder commits on drop, syncs, preserves children and supports canc
     await left.mouse.up()
     await expect(cell(left, c)).toHaveAttribute('data-parent-id', 'root')
     await expect(cell(left, child)).toHaveAttribute('data-parent-id', c)
+  } finally {
+    await leftContext.close()
+    await rightContext.close()
+  }
+})
+
+test('active subtree can be reparented onto a card or root', async ({ browser }) => {
+  const leftContext = await namedContext(browser)
+  const rightContext = await namedContext(browser)
+  const left = await leftContext.newPage()
+  const right = await rightContext.newPage()
+  try {
+    await open(left)
+    await open(right)
+    await cell(left, 'root').click()
+    const firstParent = await create(left, 'Tab', 'Первый родитель')
+    const moving = await create(left, 'Tab', 'Переносимая ветка')
+    const child = await create(left, 'Tab', 'Деталь ветки')
+    await cell(left, firstParent).click()
+    const secondParent = await create(left, 'Enter', 'Второй родитель')
+    await expect(cell(right, child)).toHaveAttribute('data-parent-id', moving)
+
+    await dragAsChild(left, moving, secondParent)
+    await left.mouse.up()
+    await expect(cell(left, moving)).toHaveAttribute('data-parent-id', secondParent)
+    await expect(cell(right, moving)).toHaveAttribute('data-parent-id', secondParent)
+    await expect(cell(right, child)).toHaveAttribute('data-parent-id', moving)
+
+    await left.keyboard.press('Control+z')
+    await expect(cell(right, moving)).toHaveAttribute('data-parent-id', firstParent)
+    await left.keyboard.press('Control+Shift+z')
+    await expect(cell(right, moving)).toHaveAttribute('data-parent-id', secondParent)
+
+    await dragAsChild(left, moving, 'root')
+    await left.mouse.up()
+    await expect(cell(left, moving)).toHaveAttribute('data-parent-id', 'root')
+    await expect(cell(right, moving)).toHaveAttribute('data-parent-id', 'root')
   } finally {
     await leftContext.close()
     await rightContext.close()
