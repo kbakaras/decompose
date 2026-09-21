@@ -111,6 +111,15 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .confirmation-dialog .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .confirmation-dialog .dialog-actions button { margin: 0; padding: 7px 10px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; font-size: 13px; line-height: 18px; }
 .confirmation-dialog .dialog-actions .delete-button, .confirmation-dialog .dialog-actions .danger-button { color: #8f3028; background: transparent; }
+.card-parameters-dialog { width: min(420px, calc(100% - 24px)); }
+.card-parameters-dialog h2 { margin: 0 0 16px; font-size: 20px; line-height: 1.3; font-weight: 500; }
+.card-parameters-dialog label { display: block; margin-bottom: 7px; font-size: 13px; }
+.card-parameters-dialog input { width: 100%; padding: 8px; border: 1px solid #b7bcae; border-radius: 5px; background: white; font-size: 14px; }
+.card-parameters-dialog .dialog-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.card-parameters-dialog .dialog-actions button { padding: 7px 10px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; font-size: 13px; line-height: 18px; }
+.card-parameters-dialog .dialog-actions .delete-button { color: #8f3028; background: transparent; }
+.dialog-actions-spacer { flex: 1; }
+.parameter-error { margin: 7px 0 0; color: #8f3028; font-size: 13px; }
 .notice.file-notice { top: auto; bottom: 12px; max-width: min(720px, calc(100% - 24px)); flex-wrap: wrap; }
 .notice.file-notice button { font-size: 12px; padding: 6px; }
 .notice.file-info { border-color: #9fb9c9; background: #e4eff5; color: #294e65; flex-wrap: nowrap; }
@@ -129,6 +138,10 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 /* Внешняя обводка усиливает рамку, не меняя размеры карточки и переносы текста. */
 .cell-active, .cell-editing { border-color: var(--cell-accent); box-shadow: 0 0 0 2px var(--cell-accent), 0 0 0 5px var(--cell-halo), var(--cell-raised-shadow, 0 6px 16px #41472e24); }
 .cell-text, .cell-editor { font-size: 15px; line-height: 1.5; min-height: 24px; overflow-wrap: anywhere; white-space: pre-wrap; text-align: var(--cell-text-align, left); color: #20251c; }
+.cell-linked:not(.cell-editing) .cell-text { padding-right: 22px; }
+.cell-link { position: absolute; top: 4px; right: 5px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; color: #52614d; opacity: .55; }
+.cell-link:hover, .cell-active .cell-link, .cell-link:focus-visible { background: #fffefa80; color: var(--cell-accent); opacity: 1; }
+.cell-link:focus-visible { outline: 2px solid var(--cell-accent); outline-offset: 1px; }
 .cell-editor { cursor: text; border: 0; outline: 0; padding: 0; resize: none; width: 100%; display: block; background: transparent; overflow: hidden; min-height: 24px; }
 .react-flow__node.react-flow__node-cell { cursor: grab; }
 .react-flow__node.react-flow__node-cell.draggable, .cell-draggable, .cell-dragging { cursor: move; }

@@ -37,7 +37,8 @@ export function snapshotDiagram(doc: Y.Doc): DiagramFile {
     const id = pending.pop()!
     const node = tree.nodes.get(id)!
     const children = [...(tree.children.get(id) ?? [])]
-    nodes.push({ id, text: node.text, status: node.status, children })
+    nodes.push({ id, text: node.text, status: node.status, children,
+      ...(node.targetTrackerKey ? { targetTrackerKey: node.targetTrackerKey } : {}) })
     pending.push(...children.slice().reverse())
   }
   return { format: 'decompose', version: 1, nodes, settings: { textAlign: readTextAlign(doc) } }

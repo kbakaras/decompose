@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react'
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import type { ProjectedNode, TextAlign } from '../domain'
 import type { Participant } from './session'
@@ -18,6 +18,7 @@ export interface CellData extends Record<string, unknown> {
   onEditorKey: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onCommit: () => void
   onMeasure: (id: string, height: number) => void
+  onFollowLink: (key: string) => void
 }
 export type FlowCell = Node<CellData, 'cell'>
 
@@ -60,17 +61,31 @@ export const Cell = memo(function Cell({ data, draggable }: NodeProps<FlowCell>)
     node.recovered ? 'Перемещено после объединения изменений' : '',
   ].filter(Boolean).join('. ')
   return <div ref={element}
-    className={`cell ${data.active ? 'cell-active' : ''} ${node.status === 'done' ? 'cell-done' : ''} ${editing ? 'cell-editing' : ''} ${data.dropSide ? `cell-drop-${data.dropSide}` : ''} ${data.dragging ? 'cell-dragging' : ''} ${draggable ? 'cell-draggable' : ''} ${data.others.length ? 'cell-with-presence' : ''}`}
+    className={`cell ${data.active ? 'cell-active' : ''} ${node.status === 'done' ? 'cell-done' : ''} ${editing ? 'cell-editing' : ''} ${node.targetTrackerKey ? 'cell-linked' : ''} ${data.dropSide ? `cell-drop-${data.dropSide}` : ''} ${data.dragging ? 'cell-dragging' : ''} ${draggable ? 'cell-draggable' : ''} ${data.others.length ? 'cell-with-presence' : ''}`}
     style={{ '--presence-color': data.others[0]?.color, '--cell-text-align': data.textAlign } as CSSProperties}
     data-layout-ready={String(data.positioned)}
     data-cell-id={node.id} data-parent-id={node.parentId ?? ''} data-order={data.index}
-    data-status={node.status} data-active={String(data.active)} data-text={node.text}
+    data-status={node.status} data-active={String(data.active)} data-text={node.text} data-tracker-link={node.targetTrackerKey ?? ''}
     data-editing-by={editingBy} title={selectedBy || undefined} aria-label={`${text}. ${details}`}>
     {node.parentId !== null && <Handle type="target" position={Position.Left} isConnectable={false} />}
     {editing ? <textarea ref={editor} className="nodrag nopan nowheel cell-editor" aria-label="Текст клеточки"
       value={edit.draft} rows={1} onChange={event => data.onDraft(event.target.value)}
       onKeyDown={data.onEditorKey} onBlur={data.onCommit} spellCheck />
       : <div className="cell-text">{node.text}</div>}
+    {node.targetTrackerKey && !editing && <a className="cell-link nodrag nopan" href={`tracker/${encodeURIComponent(node.targetTrackerKey)}`}
+      aria-label={`Открыть задачу ${node.targetTrackerKey}`}
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+        event.stopPropagation()
+        if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+          event.preventDefault()
+          data.onFollowLink(node.targetTrackerKey!)
+        }
+      }} onAuxClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+        <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
+      </svg>
+    </a>}
     <Handle type="source" position={Position.Right} isConnectable={false} />
   </div>
 })

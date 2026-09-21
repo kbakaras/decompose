@@ -50,6 +50,17 @@ describe('TreeCommands', () => {
     })
   })
 
+  it('sets, normalizes and removes one tracker link', () => {
+    const { doc, commands } = setup()
+    const node = commands.createChild(ROOT_ID)
+
+    commands.setTrackerLink(node, 'mc-99636')
+    expect(projectTree(doc).nodes.get(node)?.targetTrackerKey).toBe('MC-99636')
+    expect(() => commands.setTrackerLink(node, 'not a key')).toThrowError(DomainError)
+    commands.setTrackerLink(node, null)
+    expect(projectTree(doc).nodes.get(node)?.targetTrackerKey).toBeNull()
+  })
+
   it('deletes the projected subtree but never root', () => {
     const { doc, commands } = setup()
     const parent = commands.createChild(ROOT_ID)

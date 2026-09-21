@@ -21,6 +21,8 @@ it('rejects malformed, ambiguous and disconnected graphs rather than repairing t
     { nodes: [node('a', ['b', 'b']), node('b')] },
     { nodes: [node('a', ['b', 'c']), node('b', ['c']), node('c')] },
     { nodes: [{ ...node('a'), status: 'green' }] }, { nodes: [{ ...node('a'), text: 3 }] },
+    { nodes: [{ ...node('a'), targetTrackerKey: 'not a key' }] },
+    { nodes: [{ ...node('a'), targetTrackerKey: 'lower-1' }] },
     { nodes: [{ ...node('a'), children: [3] }] }, { nodes: Array.from({ length: 1001 }, (_, i) => node(String(i))) }]
   for (const value of invalid) expect(() => validateImport(value)).toThrow()
 })

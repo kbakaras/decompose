@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { createUuid } from '../shared/uuid'
+import { normalizeTrackerKey } from '../shared/tracker'
 import {
   ROOT_ID,
   createNodeRecord,
@@ -25,7 +26,7 @@ export type IdFactory = () => string
 
 export class CommandOrigin {
   constructor(
-    public readonly kind: 'set-text' | 'toggle-status' | 'move-node' | 'delete-subtree' | 'create-node' | 'set-text-align',
+    public readonly kind: 'set-text' | 'set-tracker-link' | 'toggle-status' | 'move-node' | 'delete-subtree' | 'create-node' | 'set-text-align',
     public readonly nodeId: NodeId,
   ) {}
 }
@@ -79,6 +80,20 @@ export class TreeCommands {
     this.doc.transact(() => {
       node.set('status', readStatus(node) === 'open' ? 'done' : 'open')
     }, new CommandOrigin('toggle-status', nodeId))
+  }
+
+  setTrackerLink(nodeId: NodeId, key: string | null): void {
+    const node = this.requireRecord(nodeId)
+    const normalized = key === null ? null : normalizeTrackerKey(key)
+    if (key !== null && normalized === null) {
+      throw new DomainError('invalid-operation', 'Некорректный ключ задачи')
+    }
+    const current = typeof node.get('targetTrackerKey') === 'string' ? node.get('targetTrackerKey') : null
+    if (current === normalized) return
+    this.doc.transact(() => {
+      if (normalized === null) node.delete('targetTrackerKey')
+      else node.set('targetTrackerKey', normalized)
+    }, new CommandOrigin('set-tracker-link', nodeId))
   }
 
   setTextAlign(value: TextAlign): void {

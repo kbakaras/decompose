@@ -25,6 +25,7 @@ describe('DocumentHistory', () => {
     const states = [treeSnapshot(doc)]
     const operations = [
       () => commands.setText(first, 'Новый текст'),
+      () => commands.setTrackerLink(first, 'HISTORY-1'),
       () => commands.toggleStatus(first),
       () => commands.reorder(second, -1),
       () => commands.indent(first),
@@ -88,6 +89,24 @@ describe('DocumentHistory', () => {
     history.undo()
     expect(projectTree(doc).nodes.get(first)).toMatchObject({ text: 'Чужая правка', status: 'done' })
     expect(history.canUndo).toBe(false)
+    sync(doc, remote)
+    expect(treeSnapshot(doc)).toEqual(treeSnapshot(remote))
+    history.destroy()
+    doc.destroy()
+    remote.destroy()
+  })
+
+  it('does not overwrite a newer remote tracker link on undo', () => {
+    const { doc, commands, first, history } = setup()
+    const remote = cloneDocument(doc)
+    const remoteCommands = new TreeCommands(remote)
+    commands.setTrackerLink(first, 'LOCAL-1')
+    sync(doc, remote)
+    remoteCommands.setTrackerLink(first, 'REMOTE-2')
+    sync(doc, remote)
+
+    history.undo()
+    expect(projectTree(doc).nodes.get(first)?.targetTrackerKey).toBe('REMOTE-2')
     sync(doc, remote)
     expect(treeSnapshot(doc)).toEqual(treeSnapshot(remote))
     history.destroy()

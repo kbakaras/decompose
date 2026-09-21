@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { normalizeTrackerKey } from '../shared/tracker'
 
 export const SCHEMA_VERSION = 2
 export const ROOT_ID = 'root'
@@ -43,10 +44,12 @@ export function createNodeRecord(
   text: string,
   status: NodeStatus,
   placement: Placement | null,
+  targetTrackerKey?: string,
 ): NodeRecord {
   const node = new Y.Map<unknown>()
   node.set('text', normalizeText(text))
   node.set('status', status)
+  if (targetTrackerKey !== undefined) node.set('targetTrackerKey', targetTrackerKey)
   node.set('placement', placement)
   node.set('deleted', false)
   return node
@@ -99,6 +102,10 @@ export function readText(node: NodeRecord): string {
 
 export function readStatus(node: NodeRecord): NodeStatus {
   return node.get('status') === 'done' ? 'done' : 'open'
+}
+
+export function readTrackerLink(node: NodeRecord): string | null {
+  return normalizeTrackerKey(node.get('targetTrackerKey'))
 }
 
 export function isDeleted(node: NodeRecord): boolean {

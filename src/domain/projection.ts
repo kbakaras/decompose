@@ -6,6 +6,7 @@ import {
   readPlacement,
   readStatus,
   readText,
+  readTrackerLink,
 } from './schema'
 import type * as Y from 'yjs'
 
@@ -13,6 +14,7 @@ export interface ProjectedNode {
   id: NodeId
   text: string
   status: NodeStatus
+  targetTrackerKey: string | null
   parentId: NodeId | null
   placementId: string | null
   recovered: boolean
@@ -28,6 +30,7 @@ interface CandidateNode {
   id: NodeId
   text: string
   status: NodeStatus
+  targetTrackerKey: string | null
   placement: Placement | null
 }
 
@@ -42,6 +45,7 @@ export function projectTree(doc: Y.Doc): TreeProjection {
       id,
       text: readText(node),
       status: readStatus(node),
+      targetTrackerKey: readTrackerLink(node),
       placement: id === ROOT_ID ? null : readPlacement(node),
     })
   })
@@ -51,6 +55,7 @@ export function projectTree(doc: Y.Doc): TreeProjection {
       id: ROOT_ID,
       text: 'Новая декомпозиция',
       status: 'open',
+      targetTrackerKey: null,
       placement: null,
     })
   }
@@ -117,6 +122,7 @@ export function projectTree(doc: Y.Doc): TreeProjection {
       id,
       text: node.text,
       status: node.status,
+      targetTrackerKey: node.targetTrackerKey,
       parentId: id === ROOT_ID ? null : (parents.get(id) ?? ROOT_ID),
       placementId: node.placement?.placementId ?? null,
       recovered: recovered.has(id),

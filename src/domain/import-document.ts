@@ -22,7 +22,7 @@ export function createImportedDocument(value: unknown, defaultTextAlign?: TextAl
     if (textAlign !== undefined) getStructures(doc).settings.set('textAlign', textAlign)
     for (const node of tree.nodes) {
       const id = ids.get(node.id)!
-      nodes.set(id, createNodeRecord(node.text, node.status, placements.get(node.id) ?? null))
+      nodes.set(id, createNodeRecord(node.text, node.status, placements.get(node.id) ?? null, node.targetTrackerKey))
       const entries = new Y.Array<OrderEntry>()
       entries.push(node.children.map(child => ({ nodeId: ids.get(child)!, placementId: placements.get(child)!.placementId })))
       orders.set(id, entries)

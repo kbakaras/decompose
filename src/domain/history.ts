@@ -18,7 +18,8 @@ export class DocumentHistory {
       // Yjs сначала восстанавливает прежние значения, затем удаляет новые.
       // При конфликте восстановление Y.Map может быть пропущено: не даём
       // следующему удалению оставить узел без text/status/placement.
-      deleteFilter: item => item.parent === deletions || item.parent === settings || item.parentSub === null,
+      deleteFilter: item => item.parent === deletions || item.parent === settings
+        || item.parentSub === null || item.parentSub === 'targetTrackerKey',
     })
     this.manager.on('stack-item-added', ({ stackItem, origin }) => {
       if (origin instanceof CommandOrigin) stackItem.meta.set(COMMAND, origin)

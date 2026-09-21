@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
 import { DomainError, ROOT_ID, projectTree, normalizeText, readTextAlign } from '../domain'
 import { diagramTitle } from '../shared/diagrams'
-import { trackerLabel } from '../shared/tracker'
+import { normalizeTrackerKey, trackerLabel, trackerUrl } from '../shared/tracker'
 import type { Session } from './session'
 import { Cell, type EditState, type FlowCell } from './Cell'
 import { DiagramPicker } from './DiagramPicker'
@@ -64,6 +64,9 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const [shareLink, setShareLink] = useState('')
   const shareDialog = useRef<HTMLDialogElement>(null)
   useEffect(() => { if (shareLink) shareDialog.current?.showModal(); else shareDialog.current?.close() }, [shareLink])
+  const [parameters, setParameters] = useState<{ id: string; draft: string; error: string } | null>(null)
+  const parametersDialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => { if (parameters) parametersDialog.current?.showModal(); else parametersDialog.current?.close() }, [parameters])
   const actionsContainer = useRef<HTMLDivElement>(null)
   const [heights, setHeights] = useState(new Map<string, number>())
   const [positions, setPositions] = useState(new Map<string, { x: number; y: number }>())
@@ -221,6 +224,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     updateDrag(null)
     setActionsOpen(false)
     setHelp(false)
+    setParameters(null)
   }), [registerBeforeLeave, commit, updateDrag])
   useEffect(() => {
     const prepare = () => { commit(); updateDrag(null); setActionsOpen(false) }
@@ -272,6 +276,47 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     updateEdit({ id, draft: node.text, isNew })
     setMessage('Enter — сохранить · Shift+Enter — перенос строки · Tab — сохранить и создать дочернюю · Esc — отменить')
   }), [session, updateEdit, withIdentity])
+  const openParameters = useCallback((id: string) => withIdentity(() => {
+    commit()
+    const node = projectTree(session.doc).nodes.get(id)
+    if (!node) { setNotice('Клеточка больше не видна. Выбери другую.'); return }
+    setActive(id)
+    setActionsOpen(false)
+    setParameters({ id, draft: node.targetTrackerKey ?? '', error: '' })
+  }), [commit, session, withIdentity])
+  const closeParameters = useCallback(() => {
+    setParameters(null)
+    focusCanvas()
+  }, [focusCanvas])
+  const saveParameters = useCallback(() => {
+    if (!parameters) return
+    const key = parameters.draft === '' ? null : normalizeTrackerKey(parameters.draft)
+    if (parameters.draft !== '' && key === null) {
+      setParameters({ ...parameters, error: 'Введи ключ вида MC-99636 без пробелов.' })
+      return
+    }
+    if (run(() => session.commands.setTrackerLink(parameters.id, key))) {
+      setParameters(null)
+      setMessage(key ? `Карточка связана с задачей ${key}.` : 'Ссылка карточки удалена.')
+      focusCanvas()
+    }
+  }, [parameters, run, session, focusCanvas])
+  const followTrackerLink = useCallback((key: string) => {
+    commit()
+    setParameters(null)
+    void navigateToDiagram(trackerUrl(key))
+  }, [commit, navigateToDiagram])
+  useEffect(() => {
+    const shortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'F4' || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+        || !session.tracker || !ready || editRef.current || !canvas.current?.contains(event.target as Node)) return
+      event.preventDefault()
+      event.stopPropagation()
+      openParameters(active)
+    }
+    window.addEventListener('keydown', shortcut, true)
+    return () => window.removeEventListener('keydown', shortcut, true)
+  }, [active, openParameters, ready, session.tracker])
   const create = useCallback((kind: 'child' | 'sibling') => withIdentity(() => {
     const parent = editRef.current?.id ?? active
     commit()
@@ -388,7 +433,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       dropSide: drag?.target?.anchorId === node.id ? drag.target.side : null,
       dragging: drag?.snapshot.id === node.id,
       others: others.filter(person => person.activeNode === node.id || person.editingNode === node.id),
-      onDraft, onEditorKey: editorKey, onCommit: commit, onMeasure: measure,
+      onDraft, onEditorKey: editorKey, onCommit: commit, onMeasure: measure, onFollowLink: followTrackerLink,
     },
   }))
   const edges: Edge[] = [...tree.nodes.values()].flatMap(node => node.parentId ? [{
@@ -423,6 +468,12 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
     const action = () => {
       if (event.key === 'Escape') { toolbar.current?.focus(); return }
+      if (event.key === 'Enter' && ctrl && session.tracker) {
+        const target = tree.nodes.get(active)?.targetTrackerKey
+        if (target) followTrackerLink(target)
+        else setMessage('У активной карточки нет ссылки на задачу.')
+        return
+      }
       if (event.key === 'Enter') { create('sibling'); return }
       if (event.key === 'Tab' && !event.shiftKey) { create('child'); return }
       if (event.key === 'F2') { startEdit(active); return }
@@ -513,6 +564,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); create('child') }}>Дочерняя <kbd>Tab</kbd></button>
           <button disabled={!ready || !session.canEdit || active === ROOT_ID} onClick={() => { setActionsOpen(false); create('sibling') }}>Рядом <kbd>Enter</kbd></button>
           <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
+          {session.tracker && <button disabled={!ready || !session.canEdit} onClick={() => openParameters(active)}>Параметры <kbd>F4</kbd></button>}
           <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); commit(); change(() => session.commands.toggleStatus(active)) }}>Статус <kbd>Space</kbd></button>
           <button className="delete-button" aria-label="Удалить" disabled={!ready || !session.canEdit || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
           <fieldset className="diagram-settings" disabled={!ready || switching || !!drag}>
@@ -538,6 +590,30 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       <input aria-label="Ссылка файловой сессии" readOnly value={shareLink} onFocus={event => event.target.select()} />
       <button onClick={() => setShareLink('')}>Готово</button>
       <button onClick={() => { session.roomClose?.(); setShareLink('') }}>Завершить сессию</button>
+    </dialog>
+    <dialog ref={parametersDialog} className="diagrams-dialog card-parameters-dialog" aria-labelledby="card-parameters-heading"
+      onCancel={event => { event.preventDefault(); closeParameters() }}>
+      <form onSubmit={event => { event.preventDefault(); saveParameters() }}>
+        <h2 id="card-parameters-heading">Параметры карточки</h2>
+        <label htmlFor="card-tracker-link">Ссылка на задачу</label>
+        <input id="card-tracker-link" aria-describedby={parameters?.error ? 'card-parameters-error' : undefined}
+          autoFocus autoComplete="off" spellCheck={false} value={parameters?.draft ?? ''}
+          onChange={event => setParameters(current => current && { ...current, draft: event.target.value, error: '' })}
+          placeholder="MC-99636" />
+        {parameters?.error && <p id="card-parameters-error" className="parameter-error" role="alert">{parameters.error}</p>}
+        <div className="dialog-actions">
+          {parameters && tree.nodes.get(parameters.id)?.targetTrackerKey && <button type="button" className="delete-button" onClick={() => {
+            if (run(() => session.commands.setTrackerLink(parameters.id, null))) {
+              setParameters(null)
+              setMessage('Ссылка карточки удалена.')
+              focusCanvas()
+            }
+          }}>Удалить ссылку</button>}
+          <span className="dialog-actions-spacer" />
+          <button type="button" onClick={closeParameters}>Отмена</button>
+          <button type="submit">Сохранить</button>
+        </div>
+      </form>
     </dialog>
     <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown} inert={switching}
       aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-diagram-id={session.id} data-ready={String(ready && layoutReady && !switching)}>
@@ -574,6 +650,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Tab / Enter', 'В навигации: child / sibling'], ['Стрелки', 'Parent, child и siblings'],
           ['Ctrl + ↑ / ↓', 'Выше / ниже среди siblings'], ['Ctrl + → / ←', 'Indent / outdent'],
           ['Shift + Tab', 'Outdent'], ['F2 / двойной клик', 'Редактировать текст'],
+          ...(session.tracker ? [['F4', 'Параметры карточки'], ['Ctrl + Enter', 'Перейти к связанной задаче']] : []),
           ['Space', 'Открыто / готово'], ['Delete', 'Удалить поддерево'],
           ['Enter / Ctrl + Enter', 'В редакторе: сохранить'], ['Esc в редакторе', 'Отменить draft'],
           ['Shift + Enter', 'В редакторе: перенос строки'],

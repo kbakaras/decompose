@@ -1,4 +1,5 @@
 import { normalizeText, type NodeStatus } from '../domain/schema'
+import { normalizeTrackerKey } from './tracker'
 
 export const IMPORT_FILE_LIMIT = 5 * 1024 * 1024
 export const IMPORT_JSON_LIMIT = 1024 * 1024
@@ -8,6 +9,7 @@ export interface ImportNode {
   id: string
   text: string
   status: NodeStatus
+  targetTrackerKey?: string
   children: string[]
 }
 
@@ -33,7 +35,15 @@ export function validateImport(value: unknown, maxNodes = IMPORT_NODE_LIMIT): { 
     }
     if (ids.has(node.id)) throw new ImportError('В схеме повторяются ID узлов.')
     ids.add(node.id)
-    nodes.push({ id: node.id, text: normalizeText(node.text), status: node.status, children: [...node.children] })
+    let targetTrackerKey: string | undefined
+    if ('targetTrackerKey' in node && node.targetTrackerKey !== undefined) {
+      const normalized = normalizeTrackerKey(node.targetTrackerKey)
+      if (normalized === null || normalized !== node.targetTrackerKey) {
+        throw new ImportError('Ссылка карточки должна содержать нормализованный ключ задачи.')
+      }
+      targetTrackerKey = normalized
+    }
+    nodes.push({ id: node.id, text: normalizeText(node.text), status: node.status, children: [...node.children], ...(targetTrackerKey ? { targetTrackerKey } : {}) })
   }
   const parents = new Set<string>()
   for (const node of nodes) {

@@ -109,6 +109,19 @@ describe('concurrent tree operations', () => {
     expect(['Левая полная версия', 'Правая полная версия']).toContain(text)
   })
 
+  it('converges when a tracker link is concurrently replaced and removed', () => {
+    const { doc, moving } = baseTree()
+    new TreeCommands(doc).setTrackerLink(moving, 'BASE-1')
+    const left = cloneDocument(doc)
+    const right = cloneDocument(doc)
+
+    new TreeCommands(left).setTrackerLink(moving, 'LEFT-2')
+    new TreeCommands(right).setTrackerLink(moving, null)
+
+    const value = projectTree(expectConvergence(left, right)).nodes.get(moving)?.targetTrackerKey
+    expect([null, 'LEFT-2']).toContain(value)
+  })
+
   it('preserves visible order when inserting and reordering recovered siblings', () => {
     const { doc, first, second } = baseTree()
     const left = cloneDocument(doc)
