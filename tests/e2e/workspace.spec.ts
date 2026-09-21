@@ -44,6 +44,31 @@ test('keyboard decomposition, atomic drafts, cancel and status', async ({ page }
   await expect(cell(page, 'Вторая деталь')).toHaveCount(0)
 })
 
+test('keyboard focus recovers after switching browser tabs while editing', async ({ page, context }) => {
+  await open(page)
+  await child(page, 'Возврат к клавиатуре')
+  const id = (await cell(page, 'Возврат к клавиатуре').getAttribute('data-cell-id'))!
+  const target = page.locator(`[data-cell-id="${id}"]`)
+  await page.keyboard.press('F2')
+  const editor = page.getByRole('textbox', { name: 'Текст клеточки' })
+  await expect(editor).toBeFocused()
+  await editor.fill('Текст сохранён при переключении')
+
+  const other = await context.newPage()
+  await other.goto('about:blank')
+  await other.bringToFront()
+  // Brave снимает фокус с textarea при уходе со вкладки и тем самым сохраняет draft.
+  await page.evaluate(() => document.querySelector<HTMLTextAreaElement>('.cell-editor')?.blur())
+  await page.bringToFront()
+
+  await expect(target).toHaveAttribute('data-text', 'Текст сохранён при переключении')
+  await expect(target).toHaveAttribute('data-active', 'true')
+  // Даже если браузер не сообщил о возврате фокуса, первая команда не теряется.
+  await page.keyboard.press('F2')
+  await expect(page.getByRole('textbox', { name: 'Текст клеточки' })).toBeFocused()
+  await other.close()
+})
+
 test('two clients, soft lock, offline reload and concurrent atomic text merge', async ({ browser }) => {
   const leftContext = await namedContext(browser)
   const rightContext = await namedContext(browser)

@@ -136,6 +136,28 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
   }, [])
   useEffect(() => {
+    let frame = 0
+    const restoreKeyboardFocus = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (!document.hasFocus() || document.visibilityState === 'hidden' || switching || !ready
+          || document.querySelector('dialog[open]')) return
+        const focused = document.activeElement
+        if (focused && focused !== document.body && focused !== document.documentElement) return
+        const editor = editRef.current && canvas.current?.querySelector<HTMLTextAreaElement>('.cell-editor')
+        if (editor) editor.focus({ preventScroll: true })
+        else focusCanvas()
+      })
+    }
+    window.addEventListener('focus', restoreKeyboardFocus)
+    document.addEventListener('visibilitychange', restoreKeyboardFocus)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('focus', restoreKeyboardFocus)
+      document.removeEventListener('visibilitychange', restoreKeyboardFocus)
+    }
+  }, [focusCanvas, ready, switching])
+  useEffect(() => {
     session.setPresence('activeNode', active)
     if (ready && !switching && !editRef.current) focusCanvas()
   }, [active, ready, switching, session, focusCanvas])
@@ -312,15 +334,18 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   }, [commit, navigateToDiagram])
   useEffect(() => {
     const shortcut = (event: globalThis.KeyboardEvent) => {
+      const focused = document.activeElement
+      const focusLost = focused === document.body || focused === document.documentElement
       if (event.key !== 'F4' || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
-        || !session.tracker || !ready || editRef.current || !canvas.current?.contains(event.target as Node)) return
+        || !session.tracker || !ready || switching || editRef.current || document.querySelector('dialog[open]')
+        || (!focusLost && !canvas.current?.contains(event.target as Node))) return
       event.preventDefault()
       event.stopPropagation()
       openParameters(active)
     }
     window.addEventListener('keydown', shortcut, true)
     return () => window.removeEventListener('keydown', shortcut, true)
-  }, [active, openParameters, ready, session.tracker])
+  }, [active, openParameters, ready, session.tracker, switching])
   const create = useCallback((kind: 'child' | 'sibling') => withIdentity(() => {
     const parent = editRef.current?.id ?? active
     commit()
@@ -528,8 +553,9 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     })
   }
 
-  const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!ready || editRef.current || event.nativeEvent.isComposing) return
+  const keyDown = (event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent) => {
+    const nativeEvent = 'nativeEvent' in event ? event.nativeEvent : event
+    if (!ready || switching || editRef.current || nativeEvent.isComposing) return
     if ((event.target as HTMLElement).closest('button, a, input, textarea, select')) return
     if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return }
     if (dragRef.current) {
@@ -585,6 +611,17 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       action()
     }
   }
+  useEffect(() => {
+    const recoverLostKeyboardFocus = (event: globalThis.KeyboardEvent) => {
+      const focused = document.activeElement
+      if (focused !== document.body && focused !== document.documentElement) return
+      if (document.querySelector('dialog[open]')) return
+      focusCanvas()
+      keyDown(event)
+    }
+    window.addEventListener('keydown', recoverLostKeyboardFocus)
+    return () => window.removeEventListener('keydown', recoverLostKeyboardFocus)
+  })
 
   return <>
     {createPortal(<>
