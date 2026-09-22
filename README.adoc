@@ -68,18 +68,170 @@ npm start
 
 Открой `http://localhost:3000`. Первое открытие документа требует доступного сервера. Загруженный документ можно редактировать при потере соединения. Offline-перезагрузка страницы через service worker доступна на localhost и по HTTPS; на обычном HTTP под другим hostname для перезагрузки нужен сервер.
 
-Вместо локального Node.js можно использовать Docker:
+=== Docker Compose
+
+Опубликованный образ можно запустить с помощью следующего файла. Сохрани его как `compose.yaml` или `docker-compose.yaml`.
+
+.Полный пример `compose.yaml`
+[source,yaml]
+----
+services:
+  decompose:
+    image: ${DECOMPOSE_IMAGE:-kbakaras/decompose:latest}
+    ports:
+      - "${DECOMPOSE_BIND_ADDRESS:-127.0.0.1}:${DECOMPOSE_PORT:-3000}:3000"
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - decompose-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+
+volumes:
+  decompose-data:
+----
+
+Если репозиторий `kbakaras/decompose` в Docker Hub закрытый, сначала выполни `docker login` с учётной записью, которой разрешено скачивание образа. Затем запусти приложение из каталога с Compose-файлом:
 
 [source,shell]
 ----
-docker compose up --build -d
+docker compose pull
+docker compose up -d
+docker compose ps
 ----
 
-Compose публикует порт только на `127.0.0.1:3000`. В MVP нет auth: публикация в сети допускается только для доверенной среды.
+По умолчанию приложение доступно по адресу `http://127.0.0.1:3000`. Внешний порт можно изменить без правки файла:
+
+[source,shell]
+----
+DECOMPOSE_PORT=8080 docker compose up -d
+----
+
+В этом случае адрес приложения — `http://127.0.0.1:8080`. Порт контейнера остаётся равным `3000`. Чтобы разрешить подключения из доверенной локальной сети, отдельно измени адрес привязки:
+
+[source,shell]
+----
+DECOMPOSE_BIND_ADDRESS=0.0.0.0 DECOMPOSE_PORT=8080 docker compose up -d
+----
+
+[WARNING]
+====
+В MVP нет аутентификации и разграничения доступа. Не публикуй порт приложения напрямую в интернете или другой недоверенной сети.
+====
+
+Для постоянных настроек создай рядом с Compose-файлом файл `.env`, который Docker Compose прочитает автоматически:
+
+[source,dotenv]
+----
+DECOMPOSE_IMAGE=kbakaras/decompose:1.2.3
+DECOMPOSE_BIND_ADDRESS=127.0.0.1
+DECOMPOSE_PORT=8080
+----
+
+По умолчанию используется образ `kbakaras/decompose:latest`. Конкретную версию также можно закрепить для одного запуска:
+
+[source,shell]
+----
+DECOMPOSE_IMAGE=kbakaras/decompose:1.2.3 docker compose up -d
+----
+
+Каталог `/data` подключён как named volume `decompose-data`. В нём находятся база `/data/decompose.sqlite` и служебные файлы SQLite. Монтируй весь каталог `/data`, а не отдельный файл базы. `docker compose down` останавливает и удаляет контейнер, но сохраняет volume. Команда `docker compose down -v` удаляет volume вместе со всеми схемами, поэтому её нельзя использовать при обычном обновлении.
+
+[#system-backup]
+==== Системное резервное копирование
+
+Страница `/backup` создаёт переносимый ZIP с обычными схемами и деревьями задач. Такой архив удобен для выборочного восстановления и переноса данных, но не содержит всего состояния сервера. Полная резервная копия экземпляра должна сохранять весь каталог `/data`: в него входят документы, каталог схем, привязки задач и служебные данные файловых сессий.
+
+Для небольшой установки самый простой надёжный способ — ненадолго штатно остановить приложение и выгрузить named volume в архив на хосте. Не копируй файлы работающей базы SQLite обычной файловой командой: полученная копия может не соответствовать одному согласованному состоянию базы.
+
+Следующий сценарий запускается из каталога с Compose-файлом. Он останавливает сервис, архивирует тот же volume через одноразовый контейнер и запускает сервис даже при ошибке резервного копирования. Каталог назначения можно задать через `DECOMPOSE_BACKUP_DIR`:
+
+[source,bash]
+----
+set -euo pipefail
+
+backup_dir="${DECOMPOSE_BACKUP_DIR:-./backups}"
+backup_file="$backup_dir/decompose-system-$(date -u +%Y-%m-%d_%H-%M-%SZ).tar.gz"
+mkdir -p "$backup_dir"
+
+restart_decompose() {
+  docker compose start decompose
+}
+trap restart_decompose EXIT
+
+docker compose stop -t 30 decompose
+docker compose run --rm --no-deps -T --entrypoint tar decompose \
+  -czf - -C /data . > "$backup_file"
+gzip -t "$backup_file"
+
+docker compose start decompose
+trap - EXIT
+printf 'Создана резервная копия: %s\n' "$backup_file"
+----
+
+Архив находится вне Docker volume, поэтому его может забирать обычная система резервного копирования. Вместе с ним сохраняй Compose-файл и `.env` с точным тегом образа. Для предсказуемого восстановления сначала запускай ту же версию приложения, проверяй данные и только затем обновляй образ. Тег `latest` не фиксирует версию и для этой цели не подходит.
+
+Храни хотя бы одну копию на другом носителе или узле, контролируй завершение задания по коду возврата и периодически проверяй восстановление. Архив может содержать рабочие данные команды, поэтому ограничь доступ к нему и включи шифрование в системе резервного копирования.
+
+Перед восстановлением проверь архив и сделай отдельную копию заменяемого состояния. Восстановление полностью очищает `/data`, распаковывает архив и только после этого запускает приложение:
+
+[source,bash]
+----
+backup_file=./backups/decompose-system-2026-09-22_01-30-00Z.tar.gz
+gzip -t "$backup_file"
+
+docker compose pull
+docker compose create decompose
+docker compose stop -t 30 decompose
+docker compose run --rm --no-deps -T --entrypoint node decompose \
+  -e "const fs = require('node:fs'); for (const name of fs.readdirSync('/data')) fs.rmSync('/data/' + name, { recursive: true, force: true })"
+docker compose run --rm --no-deps -T --entrypoint tar decompose \
+  -xzf - -C /data < "$backup_file"
+docker compose up -d
+docker compose ps
+----
+
+После восстановления проверь `/healthz`, открой несколько обычных схем и деревьев задач. Внешние файлы `.deco` не находятся в `/data` и должны входить в резервное копирование тех каталогов, где они сохранены. Профиль пользователя и секрет владельца файловой сессии хранятся в данных браузера, поэтому серверный архив их не восстанавливает.
+
+Если очистка или распаковка завершилась ошибкой, не запускай приложение поверх частично восстановленного каталога. Устрани причину и повтори восстановление из проверенного архива.
+
+Для обновления скачай образ и пересоздай контейнер. Существующий volume подключится снова:
+
+[source,shell]
+----
+docker compose pull
+docker compose up -d
+----
+
+Локальная Docker-сборка имеет версию `local`:
+
+[source,shell]
+----
+docker build --build-arg APP_VERSION=local -t kbakaras/decompose:local .
+DECOMPOSE_IMAGE=kbakaras/decompose:local docker compose up -d
+----
+
+Версия сборки отображается внизу титульной страницы. Релизный образ получает её из Git-тега вида `v1.2.3` и показывает без начальной `v`.
+
+=== Публикация образа
+
+GitHub Actions проверяет каждый push в `main`: устанавливает зависимости, запускает тесты, собирает приложение и проверяет Docker-сборку без публикации. Образ отправляется в Docker Hub только по SemVer-тегу с начальной `v`.
+
+[source,shell]
+----
+git tag v1.2.3
+git push origin v1.2.3
+----
+
+Стабильный тег публикует `kbakaras/decompose:1.2.3` и обновляет `kbakaras/decompose:latest`. Тег вида `v1.2.3-rc.1` публикует только `1.2.3-rc.1`. Для записи в Docker Hub секрет репозитория GitHub `DOCKERHUB_WRITE` должен содержать access token пользователя `kbakaras` с правом push.
 
 === Reverse proxy и обычный HTTP
 
-Одна сборка и один экземпляр сервиса могут одновременно обслуживать корень сайта и подпуть на другом hostname, по HTTP или HTTPS. Например, `http://decompose.luxburg/` и `http://luxburg-aus2t3sl/decompose/`. Для этого не нужны `BASE_PATH`, build arguments или повторная сборка под префикс.
+Одна сборка и один экземпляр сервиса могут одновременно обслуживать корень сайта и подпуть на другом hostname, по HTTP или HTTPS. Например, `http://decompose.test/` и `http://gateway.test/decompose/`. Для этого не нужны `BASE_PATH`, build arguments или повторная сборка под префикс.
 
 Frontend собирается с относительными адресами ресурсов. Сервер указывает в HTML относительный путь к корню приложения; браузер разрешает его с сохранением внешнего hostname, порта и префикса. API, ссылки, логотип и WebSocket используют этот базовый URL. При прямом открытии `/decompose/tracker/MC-99636` ресурсы загружаются из `/decompose/assets/`, API — из `/decompose/api/`, WebSocket — из `/decompose/collaboration`. Для HTTP используется `ws`, для HTTPS — `wss`.
 
@@ -87,11 +239,11 @@ Frontend собирается с относительными адресами �
 
 [source,caddyfile]
 ----
-http://decompose.luxburg {
+http://decompose.test {
     reverse_proxy 127.0.0.1:3000
 }
 
-http://luxburg-aus2t3sl {
+http://gateway.test {
     redir /decompose /decompose/?{query} 308
 
     handle_path /decompose/* {
@@ -113,7 +265,7 @@ Backend не ограничивает hostname и не использует forw
 Ручная проверка после `npm run build` и `npm start`:
 
 . Открой `http://localhost:3000`, представься и создай схему с дочерней карточкой. Перезагрузи страницу и проверь сохранность данных.
-. Открой одну схему по `http://decompose.luxburg/diagram/<id>` и `http://luxburg-aus2t3sl/decompose/diagram/<id>`, представься на обоих адресах и измени карточку. Проверь синхронизацию между вкладками и reload.
+. Открой одну схему по `http://decompose.test/diagram/<id>` и `http://gateway.test/decompose/diagram/<id>`, представься на обоих адресах и измени карточку. Проверь синхронизацию между вкладками и reload.
 . В Network на втором адресе все ресурсы, API и WebSocket должны сохранять `/decompose/`, соединение `/decompose/collaboration` — получать ответ `101`. `window.isSecureContext` должен быть `false`, а создание карточек — работать.
 . В новой вкладке напрямую открой `/decompose/tracker/MC-99636`, затем переключись на обычную схему и проверь «Назад»/«Вперёд», reload и ссылку логотипа. Ресурсы не должны запрашиваться из `/assets/` или `/decompose/tracker/assets/`.
 . Повтори проверку через HTTPS и нестандартный внешний порт: сокет должен использовать `wss` для HTTPS и сохранять внешний порт. На localhost или HTTPS после первой загрузки проверь offline reload вложенной ссылки.
@@ -137,7 +289,7 @@ Backend не ограничивает hostname и не использует forw
 
 Проверки одной сборки на разных путях: `npm run test:e2e -- tests/e2e/base-path.spec.ts`. Стенд направляет `decompose.test` и `gateway.test` на один proxy, публикующий тот же backend из корня и под префиксом. Маленькая отдельная fixture проверяет загрузку динамических JS/CSS chunks; production-файлы не пересобираются под адрес публикации.
 
-`DATA_DIR` задаёт каталог SQLite (по умолчанию `./data`), `PORT` — порт (3000), `HOST` — адрес (127.0.0.1, в Docker 0.0.0.0). Для резервной копии останови приложение штатно и скопируй `decompose.sqlite`. При обновлении сохрани volume, пересобери image и запусти сервис. Сервер автоматически переводит схему 1 в 2 (маркеры удаления для undo); старые удаления остаются необратимыми. После обновления перезагрузи открытые вкладки с подключением к серверу. Другие неподдерживаемые версии схемы отклоняются.
+`DATA_DIR` задаёт каталог SQLite (по умолчанию `./data`), `PORT` — порт (3000), `HOST` — адрес (127.0.0.1, в Docker 0.0.0.0). Порядок системного резервного копирования всего каталога описан в разделе <<system-backup,«Системное резервное копирование»>>. При обновлении сохрани volume, скачай нужный образ и перезапусти сервис. Сервер автоматически переводит схему 1 в 2 (маркеры удаления для undo); старые удаления остаются необратимыми. После обновления перезагрузи открытые вкладки с подключением к серверу. Другие неподдерживаемые версии схемы отклоняются.
 
 == Управление
 
@@ -240,3 +392,9 @@ Backend не ограничивает hostname и не использует forw
 Пользовательский исходник сохранён в `assets/branding/logo-source.png`. Подготовленные варианты: `public/brand/logo.png` для верхней панели, `public/favicon.ico` с размерами 16, 32 и 48 px, `public/favicon-32.png` и `public/apple-touch-icon.png`. Белые поля удалены, для значка и favicon фон прозрачен; форма рисунка сохранена.
 
 Для повторной конвертации запусти `python scripts/prepare-branding.py` в окружении с Pillow. Для обычной сборки Python и Pillow не нужны: готовые иконки хранятся в репозитории.
+
+== Лицензия
+
+Исходный код и документация Decompose распространяются по лицензии Apache License 2.0. Полный текст находится в файле `LICENSE`, сведения об авторских правах — в `NOTICE`.
+
+Production-сборка использует сторонние библиотеки под совместимыми открытыми лицензиями. Их перечень и полные тексты лицензий находятся в `THIRD_PARTY_NOTICES`, а исходные лицензионные файлы сохраняются в каталогах соответствующих npm-пакетов. Команда `npm run licenses` обновляет файл после изменения `package-lock.json`, а `npm run licenses:check` проверяет его актуальность. Docker-образ содержит все три файла, frontend-сборка публикует их в каталоге `licenses/`.

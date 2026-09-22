@@ -3,6 +3,7 @@ import { DiagramPicker } from './DiagramPicker'
 import { FileActions, type FileActionsHandle } from './FileActions'
 import { pickWritableFile } from './diagram-file'
 import type { OpenLocalFile } from './file-session'
+import { APP_VERSION } from './version'
 
 export function Home({ navigate, requestIdentity, openLocal, switching }: {
   navigate: (href: string) => Promise<void>
@@ -74,6 +75,7 @@ export function Home({ navigate, requestIdentity, openLocal, switching }: {
         <p>Выполненные карточки помечаются зелёным. Действия можно отменять и повторять. При потере связи открытое дерево остаётся доступным.</p>
         <p>Несколько участников могут править дерево одновременно. При попытке редактировать уже занятую карточку появляется предупреждение.</p>
       </section>
+      <p className="home-version">Версия <strong>{APP_VERSION}</strong></p>
     </div>
     <FileActions ref={files} returnFocus={returnFocus} reportError={setError} navigate={navigate} requestIdentity={requestIdentity} />
     {error && <div className="notice navigation-error" role="alert"><span>{error}</span><button aria-label="Закрыть сообщение файла" onClick={() => { setError(null); returnFocus() }}>×</button></div>}

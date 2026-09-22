@@ -1,7 +1,8 @@
 {
   "name": "decompose",
-  "version": "0.1.0",
+  "description": "Keyboard-first collaborative editor for decomposing complex tasks into structured trees.",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=24 <27"
@@ -10,9 +11,11 @@
     "dev": "concurrently -k -n server,client \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite",
     "dev:server": "tsx watch src/server/index.ts",
-    "build": "npm run typecheck && npm run build:client && npm run build:server",
+    "build": "npm run licenses:check && npm run typecheck && npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "esbuild src/server/index.ts --bundle --format=esm --platform=node --target=node24 --packages=external --outdir=dist/server --sourcemap",
+    "licenses": "node scripts/third-party-notices.mjs",
+    "licenses:check": "node scripts/third-party-notices.mjs --check",
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

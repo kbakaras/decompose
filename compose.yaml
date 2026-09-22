@@ -1,8 +1,8 @@
 services:
   decompose:
-    build: .
+    image: ${DECOMPOSE_IMAGE:-kbakaras/decompose:latest}
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${DECOMPOSE_BIND_ADDRESS:-127.0.0.1}:${DECOMPOSE_PORT:-3000}:3000"
     environment:
       DATA_DIR: /data
     volumes:
@@ -13,5 +13,6 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 10s
+
 volumes:
   decompose-data:

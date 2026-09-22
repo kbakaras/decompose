@@ -30,7 +30,7 @@ it('serves HTTP and WebSocket behind arbitrary external hosts without relaxing r
   try {
     const port = await backend.listen(0)
     const id = await createTestDiagram(`http://127.0.0.1:${port}`)
-    for (const origin of ['http://decompose.luxburg', 'http://lan.example:8080', 'https://another-host.example:8443']) {
+    for (const origin of ['http://decompose.test', 'http://lan.example:8080', 'https://another-host.example:8443']) {
       const url = new URL(origin)
       const headers = { Host: url.host, Origin: origin, 'X-Forwarded-Host': url.host,
         'X-Forwarded-Proto': url.protocol.slice(0, -1), 'X-Forwarded-For': '192.0.2.10' }

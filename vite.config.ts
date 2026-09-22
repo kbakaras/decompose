@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { relativeAppRoot, setHtmlBase } from './src/shared/app-base'
 
 const brandingFiles = ['brand/logo.png', 'favicon.ico', 'favicon-32.png', 'apple-touch-icon.png']
+const legalFiles = ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES']
 
 function serviceWorkerSource(files: string[], version: string) {
   return `
@@ -52,6 +53,14 @@ export default defineConfig({
         if (!context.server) return html
         return setHtmlBase(html, relativeAppRoot((context.originalUrl ?? context.path).split('?')[0]))
       },
+    },
+  }, {
+    name: 'legal-files',
+    apply: 'build',
+    generateBundle() {
+      for (const file of legalFiles) {
+        this.emitFile({ type: 'asset', fileName: `licenses/${file}`, source: readFileSync(new URL(`./${file}`, import.meta.url)) })
+      }
     },
   }, {
     name: 'offline-shell',

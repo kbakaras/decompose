@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Determine application version
+        id: version
+        shell: bash
+        run: |
+          version=local
+          publish=false
+          stable=false
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            if [[ ! "${GITHUB_REF_NAME}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+              echo "Release tag must have the form v1.2.3 or v1.2.3-rc.1" >&2
+              exit 1
+            fi
+            version="${GITHUB_REF_NAME#v}"
+            publish=true
+            if [[ "${version}" != *-* ]]; then
+              stable=true
+            fi
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+          echo "stable=${stable}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check third-party license notices
+        run: npm run licenses:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+        env:
+          VITE_APP_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: kbakaras/decompose
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ steps.version.outputs.stable == 'true' }}
+
+      - name: Log in to Docker Hub
+        if: steps.version.outputs.publish == 'true'
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          username: kbakaras
+          password: ${{ secrets.DOCKERHUB_WRITE }}
+          scope: kbakaras/decompose@push
+
+      - name: Build and publish Docker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          pull: true
+          push: ${{ steps.version.outputs.publish == 'true' }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+            VCS_REF=${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

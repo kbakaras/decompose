@@ -7,7 +7,7 @@ button:disabled { opacity: .4; cursor: default; }
 button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offset: 3px; }
 .app { position: relative; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 .home { flex: 1; min-height: 0; overflow: auto; }
-.home-content { width: min(1080px, 100%); margin: 0 auto; padding: 56px 32px 32px; }
+.home-content { position: relative; width: min(1080px, 100%); margin: 0 auto; padding: 56px 32px 32px; }
 #home-heading { margin: 0 0 20px; font-size: 32px; line-height: 1.2; font-weight: 650; letter-spacing: -.6px; }
 .home-modes h2 { margin: 0 0 12px; font-size: 20px; line-height: 1.35; font-weight: 600; }
 .home-intro > div > p, .home-features p, .home-modes p { margin: 0; }
@@ -34,6 +34,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .home-modes dd { margin: 4px 0 0; }
 .home code { font-size: inherit; overflow-wrap: anywhere; }
 .home-portability { color: #53604f; }
+.home-version { position: absolute; right: 32px; bottom: 18px; margin: 0; color: #486338; font-size: 18px; line-height: 1; letter-spacing: -.2px; }
+.home-version strong { font-size: 22px; font-weight: 700; }
 .backup-page { flex: 1; min-height: 0; overflow: auto; }
 .backup-content { width: min(880px, 100%); margin: 0 auto; padding: 48px 32px; }
 .backup-content h1 { margin: 0 0 12px; font-size: 28px; line-height: 1.25; font-weight: 650; letter-spacing: -.4px; }
@@ -62,6 +64,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .backup-title { flex: 1; }
 @media (max-width: 760px) {
   .home-content { padding: 32px 20px; }
+  .home-version { right: 20px; bottom: 10px; }
   #home-heading { font-size: 28px; }
   .home-intro, .home-features, .home-mode-columns { grid-template-columns: 1fr; gap: 24px; }
   .home-mode-columns dl { gap: 24px; }

@@ -5,7 +5,7 @@ import { collaborationUrl } from '../../src/client/collaboration-url'
 
 it.each([
   ['http://localhost:3000/', 'ws://localhost:3000/collaboration'],
-  ['http://decompose.luxburg/', 'ws://decompose.luxburg/collaboration'],
+  ['http://decompose.test/', 'ws://decompose.test/collaboration'],
   ['http://decompose.test:8080/decompose/', 'ws://decompose.test:8080/decompose/collaboration'],
   ['https://another-host.example/', 'wss://another-host.example/collaboration'],
   ['https://another-host.example:8443/?diagram=main', 'wss://another-host.example:8443/collaboration'],
