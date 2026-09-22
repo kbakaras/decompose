@@ -1,11 +1,12 @@
 import { expect, it } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { createBackend } from '../../src/server/app'
 import { projectTree, readTextAlign, ROOT_ID, TreeCommands } from '../../src/domain'
 import { normalizeTrackerKey, trackerLabel, trackerSearch, type TrackerPage, type TrackerSummary } from '../../src/shared/tracker'
 import { parseDiagramRoute } from '../../src/shared/diagram-route'
+import { TEST_CLIENT_DIR } from './helpers'
 
 it('normalizes tracker keys and routes without treating malformed paths as main', () => {
   expect(normalizeTrackerKey('mc-99636')).toBe('MC-99636')
@@ -26,7 +27,7 @@ it('normalizes tracker keys and routes without treating malformed paths as main'
 
 it('creates exactly one durable tracker document and derives its title from the root', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'decompose-tracker-'))
-  let backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
+  let backend = createBackend({ dataDir, clientDir: TEST_CLIENT_DIR })
   try {
     let url = `http://127.0.0.1:${await backend.listen(0)}`
     const get = async (path: string) => (await fetch(url + path)).json()
@@ -61,7 +62,7 @@ it('creates exactly one durable tracker document and derives its title from the 
     await readOnly.disconnect()
     expect(await get('/api/tracker/MC-99636')).toEqual(renamed)
     await backend.close()
-    backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
+    backend = createBackend({ dataDir, clientDir: TEST_CLIENT_DIR })
     url = `http://127.0.0.1:${await backend.listen(0)}`
     expect(await get('/api/tracker/MC-99636')).toEqual(renamed)
     const reopened = await backend.collaboration.openDirectConnection(task.id)
@@ -76,7 +77,7 @@ it('creates exactly one durable tracker document and derives its title from the 
 
 it('searches beyond the first page and orders by persisted edits, not reads or presence', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'decompose-tracker-list-'))
-  const backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
+  const backend = createBackend({ dataDir, clientDir: TEST_CLIENT_DIR })
   try {
     const url = `http://127.0.0.1:${await backend.listen(0)}`
     const tasks: TrackerSummary[] = []

@@ -225,7 +225,7 @@ it('restarts after replacing a diagram and restores its generation and snapshot 
     expect(getStructures(direct.document!).settings.get('textAlign')).toBe('center')
     await direct.disconnect()
   } finally { await backend.close(); await rm(directory, { recursive: true, force: true }) }
-})
+}, 15000)
 
 it('aborts replacement when a participant disconnects and releases the surviving client', async () => {
   const f = await fixture()

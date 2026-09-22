@@ -1,5 +1,8 @@
 import * as Y from 'yjs'
+import { fileURLToPath } from 'node:url'
 import { ROOT_ID, projectTree, type TreeProjection } from '../../src/domain'
+
+export const TEST_CLIENT_DIR = fileURLToPath(new URL('../fixtures/client/', import.meta.url))
 
 export function cloneDocument(source: Y.Doc): Y.Doc {
   const clone = new Y.Doc()

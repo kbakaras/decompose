@@ -1,14 +1,14 @@
 import { expect, it } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createBackend } from '../../src/server/app'
-import { createTestDiagram } from './helpers'
+import { createTestDiagram, TEST_CLIENT_DIR } from './helpers'
 
 it('serves home without creating a document and retires only main on every startup', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'decompose-home-'))
-  let backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
+  let backend = createBackend({ dataDir, clientDir: TEST_CLIENT_DIR })
   try {
     let url = `http://127.0.0.1:${await backend.listen(0)}`
     expect((await fetch(url)).status).toBe(200)
@@ -21,7 +21,7 @@ it('serves home without creating a document and retires only main on every start
       db.prepare('INSERT INTO document_generations (name, generation) VALUES (?, ?)').run('main', 2)
     } finally { db.close() }
     for (let attempt = 0; attempt < 2; attempt++) {
-      backend = createBackend({ dataDir, clientDir: resolve('dist/client') })
+      backend = createBackend({ dataDir, clientDir: TEST_CLIENT_DIR })
       url = `http://127.0.0.1:${await backend.listen(0)}`
       expect(await (await fetch(`${url}/api/diagrams`)).json()).toEqual([{ id, title: 'Сохранить обычную схему' }])
       expect((await fetch(`${url}/api/diagrams/main`)).status).toBe(404)
