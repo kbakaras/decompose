@@ -28,7 +28,7 @@ function saveCatalog(items: DiagramSummary[]) {
 
 export function DiagramPicker({ id, title = '', tracker, connected, navigate, requestIdentity, temporary = false, actions, openFile, prepare, returnFocus, triggerContent, modeLabel, currentName, currentSection = 'diagrams', renderTrigger }: {
   id?: string; title?: string; tracker?: TrackerSummary; connected: boolean; navigate: (url: string) => Promise<void>; requestIdentity: () => Promise<boolean>; temporary?: boolean
-  actions?: (close: () => void) => ReactNode; openFile: (mode: FileAction | 'disk') => void; prepare?: () => void; returnFocus: () => void; triggerContent?: ReactNode
+  actions?: (close: () => void) => ReactNode; openFile: (mode: FileAction | 'disk') => void; prepare?: () => boolean; returnFocus: () => void; triggerContent?: ReactNode
   modeLabel?: string; currentName?: string; currentSection?: CatalogSection
   renderTrigger?: (open: () => void, expanded: boolean) => ReactNode
 }) {
@@ -49,7 +49,7 @@ export function DiagramPicker({ id, title = '', tracker, connected, navigate, re
   const movingFocus = useRef(false)
   const closeForAction = () => { movingFocus.current = true; dialog.current?.close() }
   const openPicker = useCallback(() => {
-    prepare?.()
+    if (prepare?.() === false) return
     setSection(currentSection)
     setFocusedSection(currentSection)
     setName('')

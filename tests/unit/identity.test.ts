@@ -63,6 +63,21 @@ it('ignores service states, hides guest selection and counts each browser once',
   expect(summarizeParticipants(participants, { id: 'guest', name: 'Анна', color: 'orange' })).toMatchObject({ guests: 0 })
 })
 
+it('keeps roster identities in the header while selection remains awareness-only', () => {
+  const participants = readParticipants([
+    [1, { user: { id: 'active', name: 'Борис', color: 'green' }, activeNode: 'root' }],
+  ])
+  const summary = summarizeParticipants(participants, { id: 'self', name: 'Ольга', color: 'orange' }, [
+    { connectionId: 'stale-tab', userId: 'stale', name: 'Анна', color: 'purple' },
+    { connectionId: 'active-tab', userId: 'active', name: 'Борис', color: 'green' },
+    { connectionId: 'second-active-tab', userId: 'active', name: 'Борис', color: 'green' },
+    { connectionId: 'anonymous-tab', userId: 'anonymous', name: null, color: 'grey' },
+  ])
+  expect(summary.named.map(person => person.name)).toEqual(['Анна', 'Борис', 'Ольга'])
+  expect(summary.guests).toBe(1)
+  expect(participants).toEqual([expect.objectContaining({ userId: 'active', activeNode: 'root' })])
+})
+
 it('does not overwrite an unsaved in-memory name when readable storage has not changed', () => {
   const local = storage()
   local.setItem(identityKey, id)

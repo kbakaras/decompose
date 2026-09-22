@@ -38,6 +38,7 @@ it('serves HTTP and WebSocket behind arbitrary external hosts without relaxing r
       expect(await status(port, `/api/diagrams/${id}`, headers)).toBe(200)
       expect(await status(port, '/api/diagrams/unknown', headers)).toBe(404)
       expect(await status(port, '/collaboration', headers, true)).toBe(101)
+      expect(await status(port, '/activity-collaboration', headers, true)).toBe(101)
       expect(await status(port, '/not-collaboration', headers, true)).toBe(404)
     }
   } finally { await backend.close(); await rm(dataDir, { recursive: true, force: true }) }

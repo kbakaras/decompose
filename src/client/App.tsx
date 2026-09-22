@@ -18,6 +18,7 @@ import { shareFileSession, type OpenLocalFile } from './file-session'
 import { StorageActions, type StorageAction } from './StorageActions'
 import { FileIndicator } from './FileIndicator'
 import { copySubtreeToSystemClipboard, readSubtreeClipboard, subtreeForClipboard, writeSubtreeClipboard } from './tree-clipboard'
+import { hasTextConflict } from './text-draft'
 
 const nodeTypes = { cell: Cell }
 
@@ -26,7 +27,7 @@ interface WorkspaceProps {
   header: HTMLElement
   switching: boolean
   navigate: (url: string) => Promise<void>
-  registerBeforeLeave: (callback: () => void) => () => void
+  registerBeforeLeave: (callback: () => boolean) => () => void
   requestIdentity: () => Promise<boolean>
   editIdentity: () => void
   openLocal: OpenLocalFile
@@ -54,6 +55,9 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const [active, setActive] = useState(ROOT_ID)
   const [edit, setEdit] = useState<EditState | null>(null)
   const editRef = useRef<EditState | null>(null)
+  const observedTextConflict = useRef<{ id: string; text: string } | null>(null)
+  const [textConflict, setTextConflict] = useState<string | null>(null)
+  const textConflictDialog = useRef<HTMLDialogElement>(null)
   const [message, setMessage] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [help, setHelp] = useState(false)
@@ -87,7 +91,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const previous = useRef(tree)
   const ready = session.ready()
   const participants = session.participants()
-  const presence = summarizeParticipants(participants, identity)
+  const presence = summarizeParticipants(participants, identity, session.participantRoster())
   const avatars = presence.named.filter(person => person.id !== identity.id)
   const connected = !!session.connected
   const others = participants.filter(person => person.name && person.clientId !== session.doc.clientID)
@@ -128,6 +132,17 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     setEdit(next)
     if (previousId !== (next?.id ?? null)) session.setPresence('editingNode', next?.id ?? null)
   }, [session])
+  useEffect(() => {
+    const current = editRef.current
+    const latest = current && tree.nodes.get(current.id)
+    observedTextConflict.current = current && latest && hasTextConflict(current.baseText, current.draft, latest.text)
+      ? { id: current.id, text: latest.text }
+      : null
+  }, [edit, tree])
+  useEffect(() => {
+    if (textConflict) textConflictDialog.current?.showModal()
+    else textConflictDialog.current?.close()
+  }, [textConflict])
   const focusCanvas = useCallback(() => {
     // Закрытие одного диалога не должно отбирать фокус у следующего.
     if (!editRef.current && !document.querySelector('dialog[open]')) {
@@ -165,6 +180,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (!tree.nodes.has(active)) {
       setActive(focusAfterRemoval(previous.current, tree, active))
       updateEdit(null)
+      setTextConflict(null)
       setMessage('Клеточка больше не видна. Выбран ближайший узел.')
     }
     previous.current = tree
@@ -235,35 +251,65 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   }), [withIdentity, run, focusCanvas])
   const commit = useCallback(() => {
     const current = editRef.current
-    if (!current) return
+    if (!current) return true
+    if (!session.identity.name) {
+      updateEdit(null)
+      setNotice('Представься перед редактированием. Несохранённый текст отменён.')
+      return false
+    }
+    const latest = projectTree(session.doc).nodes.get(current.id)
+    if (!latest) {
+      updateEdit(null)
+      setTextConflict(null)
+      setNotice('Клеточка больше не видна. Черновик не сохранён.')
+      return false
+    }
+    const observed = observedTextConflict.current
+    if (hasTextConflict(current.baseText, current.draft, latest.text)
+      || observed?.id === current.id && observed.text !== current.draft) {
+      setTextConflict(current.id)
+      return false
+    }
     updateEdit(null)
-    if (!session.identity.name) { setNotice('Представься перед редактированием. Несохранённый текст отменён.'); return }
+    setTextConflict(null)
+    if (current.draft === latest.text || current.draft === current.baseText) return true
     if (run(() => session.commands.setText(current.id, current.draft))) {
       setMessage(current.id === ROOT_ID
         ? 'Tab — дочерняя клеточка · F2 — редактировать'
         : 'Enter — соседняя клеточка · Tab — дочерняя · F2 — редактировать')
+      return true
     }
+    return false
   }, [run, session, updateEdit])
   useEffect(() => registerBeforeLeave(() => {
     actionEpoch.current++
-    commit()
+    if (!commit()) return false
     updateDrag(null)
     setActionsOpen(false)
     setHelp(false)
     setParameters(null)
+    return true
   }), [registerBeforeLeave, commit, updateDrag])
   useEffect(() => {
-    const prepare = () => { commit(); updateDrag(null); setActionsOpen(false) }
+    const prepare = () => {
+      if (!commit()) return false
+      updateDrag(null)
+      setActionsOpen(false)
+      return true
+    }
     session.prepare = prepare
     return () => { if (session.prepare === prepare) session.prepare = undefined }
   }, [session, commit, updateDrag])
   const saveFile = useCallback(() => {
-    commit()
+    if (!commit()) return
     if (session.file) void session.file.retry().catch(error => setNotice(String(error)))
     else { try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } }
   }, [commit, session, documentTitle])
   const downloadCopy = () => {
-    try { commit(); downloadDiagram(session.doc, documentTitle); setNotice(null) }
+    try {
+      if (!commit()) return
+      downloadDiagram(session.doc, documentTitle); setNotice(null)
+    }
     catch (error) { setNotice(error instanceof Error ? error.message : String(error)) }
     focusCanvas()
   }
@@ -299,11 +345,12 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (!node) { setNotice('Клеточка больше не видна. Выбери другую.'); return }
     setActive(id)
     setNotice(null)
-    updateEdit({ id, draft: node.text, isNew })
+    observedTextConflict.current = null
+    updateEdit({ id, draft: node.text, baseText: node.text, isNew })
     setMessage('Enter — сохранить · Shift+Enter — перенос строки · Tab — сохранить и создать дочернюю · Esc — отменить')
   }), [session, updateEdit, withIdentity])
   const openParameters = useCallback((id: string) => withIdentity(() => {
-    commit()
+    if (!commit()) return
     const node = projectTree(session.doc).nodes.get(id)
     if (!node) { setNotice('Клеточка больше не видна. Выбери другую.'); return }
     setActive(id)
@@ -328,7 +375,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
   }, [parameters, run, session, focusCanvas])
   const followTrackerLink = useCallback((key: string) => {
-    commit()
+    if (!commit()) return
     setParameters(null)
     void navigateToDiagram(trackerUrl(key))
   }, [commit, navigateToDiagram])
@@ -348,7 +395,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   }, [active, openParameters, ready, session.tracker, switching])
   const create = useCallback((kind: 'child' | 'sibling') => withIdentity(() => {
     const parent = editRef.current?.id ?? active
-    commit()
+    if (!commit()) return
     const created = run(() => {
       const id = kind === 'child' ? session.commands.createChild(parent) : session.commands.createSibling(parent)
       startEdit(id, true)
@@ -356,7 +403,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (!created) focusCanvas()
   }), [active, commit, run, session, startEdit, focusCanvas, withIdentity])
   const remove = useCallback(() => withIdentity(() => {
-    commit()
+    if (!commit()) return
     run(() => session.commands.deleteSubtree(active))
     focusCanvas()
   }), [active, commit, run, session, focusCanvas, withIdentity])
@@ -375,6 +422,33 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
     focusCanvas()
   }, [session, updateEdit, run, focusCanvas])
+  const continueTextEdit = useCallback(() => {
+    setTextConflict(null)
+    requestAnimationFrame(() => canvas.current?.querySelector<HTMLTextAreaElement>('.cell-editor')?.focus({ preventScroll: true }))
+  }, [])
+  const keepCurrentText = useCallback(() => {
+    setTextConflict(null)
+    updateEdit(null)
+    setMessage('Сохранена актуальная версия текста. Твой черновик отброшен.')
+    requestAnimationFrame(focusCanvas)
+  }, [focusCanvas, updateEdit])
+  const overwriteCurrentText = useCallback(() => {
+    const current = editRef.current
+    setTextConflict(null)
+    if (!current) { focusCanvas(); return }
+    const latest = projectTree(session.doc).nodes.get(current.id)
+    if (!latest) {
+      updateEdit(null)
+      setNotice('Клеточка больше не видна. Черновик не сохранён.')
+      requestAnimationFrame(focusCanvas)
+      return
+    }
+    updateEdit(null)
+    if (current.draft !== latest.text && run(() => session.commands.setText(current.id, current.draft))) {
+      setMessage('Текст карточки заменён твоим черновиком.')
+    }
+    requestAnimationFrame(focusCanvas)
+  }, [focusCanvas, run, session, updateEdit])
   const applyHistory = useCallback((direction: 'undo' | 'redo') => {
     if (!session.ready() || editRef.current || dragRef.current) return
     change(() => {
@@ -394,12 +468,11 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     if (event.key === 'Enter') {
       if (event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) return
       event.preventDefault()
-      commit()
-      focusCanvas()
+      if (commit()) focusCanvas()
     }
     if (event.key === 'Tab') {
       event.preventDefault()
-      if (event.shiftKey) { commit(); focusCanvas() } else create('child')
+      if (event.shiftKey) { if (commit()) focusCanvas() } else create('child')
     }
   }, [cancel, commit, create, focusCanvas])
   const onDraft = useCallback((text: string) => {
@@ -417,7 +490,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const startDrag = (_event: unknown, node: FlowCell) => {
     if (!session.canEdit) return
     if (node.id !== active) return
-    commit()
+    if (!commit()) return
     const snapshot = beginTreeDrag(projectTree(session.doc), node.id, positions, heights)
     if (!snapshot) return
     updateDrag({ snapshot, position: node.position, target: null, phase: 'dragging' })
@@ -642,7 +715,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           </>}
           {session.file && <>
             <button disabled={sharing || !navigator.onLine} onClick={() => {
-              close(); commit(); focusCanvas(); setSharing(true)
+              if (!commit()) return
+              close(); focusCanvas(); setSharing(true)
               void shareFileSession(session).then(setShareLink).catch(error => { setNotice(String(error)); focusCanvas() }).finally(() => setSharing(false))
             }}>{sharing ? 'Подключаем' : 'Поделиться сессией'}</button>
             <button disabled={!ready || switching || !navigator.onLine} onClick={() => { close(); setStorageMode('internal') }}>Сохранить как внутреннюю</button>
@@ -693,7 +767,10 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           <button disabled={!ready || !session.canEdit || active === ROOT_ID} onClick={() => { setActionsOpen(false); create('sibling') }}>Рядом <kbd>Enter</kbd></button>
           <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
           {session.tracker && <button disabled={!ready || !session.canEdit} onClick={() => openParameters(active)}>Параметры <kbd>F4</kbd></button>}
-          <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); commit(); change(() => session.commands.toggleStatus(active)) }}>Статус <kbd>Space</kbd></button>
+          <button disabled={!ready || !session.canEdit} onClick={() => {
+            setActionsOpen(false)
+            if (commit()) change(() => session.commands.toggleStatus(active))
+          }}>Статус <kbd>Space</kbd></button>
           <button className="delete-button" aria-label="Удалить" disabled={!ready || !session.canEdit || active === ROOT_ID} onClick={() => { setActionsOpen(false); remove() }}>Удалить <kbd>Delete</kbd></button>
           <fieldset className="diagram-settings" disabled={!ready || switching || !!drag}>
             <legend>Схема</legend>
@@ -701,8 +778,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
             <label tabIndex={-1}><input type="checkbox" disabled={!session.canEdit} checked={textAlign === 'center'} onChange={event => {
               const next = event.target.checked ? 'center' : 'left'
               setActionsOpen(false)
-              commit()
-              change(() => session.commands.setTextAlign(next))
+              if (commit()) change(() => session.commands.setTextAlign(next))
             }} />Текст карточек по центру</label>
           </fieldset>
         </div>}
@@ -743,6 +819,21 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         </div>
       </form>
     </dialog>
+    <dialog ref={textConflictDialog} className="diagrams-dialog text-conflict-dialog confirmation-dialog"
+      aria-labelledby="text-conflict-heading" onCancel={event => { event.preventDefault(); continueTextEdit() }}>
+      <h2 id="text-conflict-heading">Текст карточки изменён</h2>
+      <p>Другой участник сохранил изменения, пока у тебя был открыт черновик. Выбери, какую версию оставить.</p>
+      <div className="text-conflict-versions">
+        <section><h3>Актуальный текст</h3><div>{textConflict ? tree.nodes.get(textConflict)?.text : ''}</div></section>
+        <section><h3>Твой черновик</h3><div>{edit?.draft ?? ''}</div></section>
+      </div>
+      <div className="dialog-actions">
+        <button className="danger-button" onClick={overwriteCurrentText}>Заменить своим текстом</button>
+        <span className="dialog-actions-spacer" />
+        <button onClick={keepCurrentText}>Оставить актуальный текст</button>
+        <button autoFocus onClick={continueTextEdit}>Продолжить редактирование</button>
+      </div>
+    </dialog>
     <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown}
       onCopy={copyToClipboard} onCut={cutToClipboard} onPaste={pasteFromClipboard} inert={switching}
       aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-diagram-id={session.id} data-ready={String(ready && layoutReady && !switching)}>
@@ -753,9 +844,11 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         nodeDragThreshold={5} autoPanOnNodeDrag={false} zoomOnDoubleClick={false}
         disableKeyboardA11y deleteKeyCode={null} selectionKeyCode={null} multiSelectionKeyCode={null}
         minZoom={0.2} maxZoom={1.6} proOptions={{ hideAttribution: false }}
-        onNodeClick={(_event, node) => { if (node.id !== editRef.current?.id) { commit(); setActive(node.id); focusCanvas() } }}
+        onNodeClick={(_event, node) => {
+          if (node.id !== editRef.current?.id && commit()) { setActive(node.id); focusCanvas() }
+        }}
         onNodeDoubleClick={(_event, node) => startEdit(node.id)}
-        onPaneClick={() => { commit(); focusCanvas() }}>
+        onPaneClick={() => { if (commit()) focusCanvas() }}>
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#d9d5c9" />
         {dropAnchor && <ViewportPortal><div className="drop-indicator" data-testid="drop-indicator"
           style={{ transform: `translate(${dropAnchor.x - 8}px, ${dropY}px)`, width: NODE_WIDTH + 16 }} /></ViewportPortal>}

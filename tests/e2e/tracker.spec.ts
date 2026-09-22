@@ -277,7 +277,7 @@ test('existing tasks are guest-readable, shared across clients and separate from
     await expect(page.locator(`.diagrams-list a[href="diagram/${id}"]`)).toHaveCount(0)
     await page.locator(`.diagrams-list a[href="diagram/${ordinaryUrl.split('/').pop()}"]`).click()
     await ready(page)
-    await expect(page.locator('main')).toHaveAttribute('data-diagram-id', (await testDiagram(page)).split('/').pop()!)
+    await expect(page.locator('main')).toHaveAttribute('data-diagram-id', ordinaryUrl.split('/').pop()!)
     await page.goBack()
     await ready(page)
     await expect(page).toHaveURL(/\/tracker\/UI-200$/)

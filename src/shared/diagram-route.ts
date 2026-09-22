@@ -1,8 +1,9 @@
 import { diagramUrl, isDiagramId } from './diagrams'
 import { normalizeTrackerKey, trackerUrl } from './tracker'
 
-export type DiagramRoute = { kind: 'home' } | { kind: 'diagram'; id: string } | { kind: 'tracker'; key: string } | { kind: 'file'; id: string } | { kind: 'local-file'; id: string }
+export type DiagramRoute = { kind: 'home' } | { kind: 'activity' } | { kind: 'diagram'; id: string } | { kind: 'tracker'; key: string } | { kind: 'file'; id: string } | { kind: 'local-file'; id: string }
 
+export const activityUrl = () => 'activity'
 export const localFileUrl = (id: string) => `file/local/${encodeURIComponent(id)}`
 export const fileSessionUrl = (id: string) => `file/session/${encodeURIComponent(id)}`
 
@@ -10,7 +11,7 @@ export const fileSessionUrl = (id: string) => `file/session/${encodeURIComponent
 export function canonicalDiagramUrl(url: URL, base: URL): URL {
   const route = parseDiagramRoute(url, base)
   const canonical = new URL(url)
-  const path = route.kind === 'home' ? './' : route.kind === 'diagram' ? diagramUrl(route.id)
+  const path = route.kind === 'home' ? './' : route.kind === 'activity' ? activityUrl() : route.kind === 'diagram' ? diagramUrl(route.id)
     : route.kind === 'tracker' ? trackerUrl(route.key)
       : route.kind === 'local-file' ? localFileUrl(route.id) : fileSessionUrl(route.id)
   canonical.pathname = new URL(path, base).pathname
@@ -38,6 +39,7 @@ export function parseDiagramRoute(url: URL, base: URL = new URL('/', url)): Diag
     const id = url.searchParams.get('diagram')
     if (isDiagramId(id)) return { kind: 'diagram', id }
   } else {
+    if (/^activity\/?$/.test(path)) return { kind: 'activity' }
     const diagram = /^diagram\/([^/]+)\/?$/.exec(path)
     if (diagram && isDiagramId(diagram[1])) return { kind: 'diagram', id: diagram[1] }
     const file = /^file\/(local|session)\/([^/]+)\/?$/.exec(path)

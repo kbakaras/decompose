@@ -1,4 +1,5 @@
 import type { Identity } from './identity'
+import type { ParticipantRosterMember } from '../shared/participant-roster'
 
 export interface Participant {
   clientId: number
@@ -24,8 +25,9 @@ export function readParticipants(states: Iterable<[number, Record<string, unknow
   })
 }
 
-export function summarizeParticipants(participants: Participant[], self: Identity) {
+export function summarizeParticipants(participants: Participant[], self: Identity, roster: ParticipantRosterMember[] = []) {
   const users = new Map<string, Identity>()
+  for (const person of roster) users.set(person.userId, { id: person.userId, name: person.name, color: person.color })
   for (const person of participants) {
     // При переходе гостя к имени временно могут присутствовать обе версии из разных вкладок.
     if (!users.has(person.userId) || person.name) users.set(person.userId, { id: person.userId, name: person.name, color: person.color })

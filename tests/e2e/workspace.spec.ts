@@ -69,6 +69,57 @@ test('keyboard focus recovers after switching browser tabs while editing', async
   await other.close()
 })
 
+test('stale text draft requires an explicit conflict resolution', async ({ browser }) => {
+  const draftContext = await namedContext(browser)
+  const peerContext = await namedContext(browser)
+  const draftPage = await draftContext.newPage()
+  const peerPage = await peerContext.newPage()
+  try {
+    await open(draftPage)
+    await open(peerPage)
+    await child(draftPage, 'Исходный текст')
+    const id = await cell(draftPage, 'Исходный текст').getAttribute('data-cell-id')
+    const target = (page: Page) => page.locator(`[data-cell-id="${id}"]`)
+    await expect(target(peerPage)).toHaveAttribute('data-text', 'Исходный текст')
+
+    await draftPage.keyboard.press('F2')
+    await draftPage.getByRole('textbox', { name: 'Текст клеточки' }).fill('Мой черновик')
+    await draftContext.setOffline(true)
+    await draftPage.evaluate(() => window.dispatchEvent(new Event('offline')))
+    await expect(draftPage.getByTestId('connection')).toHaveAttribute('data-connected', 'false')
+
+    await target(peerPage).click()
+    await peerPage.keyboard.press('F2')
+    await peerPage.getByRole('textbox', { name: 'Текст клеточки' }).fill('Правка коллеги')
+    await peerPage.keyboard.press('Enter')
+
+    await draftContext.setOffline(false)
+    await draftPage.evaluate(() => window.dispatchEvent(new Event('online')))
+    await expect(draftPage.getByTestId('connection')).toHaveAttribute('data-connected', 'true')
+    await expect(target(draftPage)).toHaveAttribute('data-text', 'Правка коллеги')
+    const editor = draftPage.getByRole('textbox', { name: 'Текст клеточки' })
+    await expect(editor).toHaveValue('Мой черновик')
+    await editor.focus()
+    await editor.press('Enter')
+
+    const conflict = draftPage.getByRole('dialog', { name: 'Текст карточки изменён' })
+    await expect(conflict).toBeVisible()
+    await expect(conflict.getByText('Правка коллеги', { exact: true })).toBeVisible()
+    await expect(conflict.getByText('Мой черновик', { exact: true })).toBeVisible()
+    await expect(target(peerPage)).toHaveAttribute('data-text', 'Правка коллеги')
+
+    await conflict.getByRole('button', { name: 'Продолжить редактирование' }).click()
+    await expect(draftPage.getByRole('textbox', { name: 'Текст клеточки' })).toHaveValue('Мой черновик')
+    await expect(draftPage.getByRole('textbox', { name: 'Текст клеточки' })).toBeFocused()
+    await draftPage.keyboard.press('Enter')
+    await expect(conflict).toBeVisible()
+    await conflict.getByRole('button', { name: 'Заменить своим текстом' }).click()
+    await expect(target(peerPage)).toHaveAttribute('data-text', 'Мой черновик')
+  } finally {
+    await Promise.all([draftContext.close(), peerContext.close()])
+  }
+})
+
 test('two clients, soft lock, offline reload and concurrent atomic text merge', async ({ browser }) => {
   const leftContext = await namedContext(browser)
   const rightContext = await namedContext(browser)

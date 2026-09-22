@@ -65,7 +65,8 @@ export function StorageActions({ mode, close, returnFocus, session, title, reque
       signal.throwIfAborted()
       dialog.current?.showModal()
       if (!accepted) return
-      session.prepare?.(); session.blocked = true; session.emit()
+      if (session.prepare?.() === false) return
+      session.blocked = true; session.emit()
       if (!createdId.current) {
         await finishFileSharing(session, signal)
         signal.throwIfAborted()
@@ -112,7 +113,7 @@ export function StorageActions({ mode, close, returnFocus, session, title, reque
       }
       const selected = transfer ? await pickSaveFile(title) : undefined
       signal.throwIfAborted()
-      session.prepare?.()
+      if (session.prepare?.() === false) return
       if (selected) {
         lease = await acquireFile(await registerFile(selected.handle))
         signal.throwIfAborted()

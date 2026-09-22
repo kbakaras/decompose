@@ -5,6 +5,7 @@ import { createUuid } from '../shared/uuid'
 import { isDiagramId } from '../shared/diagrams'
 import { getStructures, ROOT_ID, SCHEMA_VERSION } from '../domain'
 import { DIAGRAM_FILE_LIMIT, snapshotDiagram, validateDiagramFile } from '../shared/diagram-file'
+import { ConnectionIdentities } from './connection-identities'
 
 interface Room {
   name: string
@@ -19,6 +20,13 @@ interface Room {
   timer?: ReturnType<typeof setTimeout>
 }
 
+export interface ActiveFileRoom {
+  id: string
+  fileName?: string
+  ownerSocketId?: string
+  document: Document
+}
+
 interface Registry { get(id: string): string | undefined; set(id: string, hash: string): unknown }
 const secretHash = (secret: string) => createHash('sha256').update(secret).digest('hex')
 
@@ -26,7 +34,8 @@ const secretHash = (secret: string) => createHash('sha256').update(secret).diges
 export class FileRooms {
   readonly rooms = new Map<string, Room>()
   readonly transport: Server
-  constructor(private lifetime = 5 * 60 * 1000, private registry: Registry = new Map()) {
+  constructor(private lifetime = 5 * 60 * 1000, private registry: Registry = new Map(),
+    readonly identities = new ConnectionIdentities()) {
     this.transport = new Server({
       quiet: true, stopOnSignals: false, websocketOptions: { maxPayload: 8 * 1024 * 1024 },
       onAuthenticate: async ({ documentName, token, socketId, connectionConfig }) => {
@@ -47,6 +56,7 @@ export class FileRooms {
         const room = this.room(documentName)
         if (!room) { connection.close(); return }
         if (context.owner) { room.owner = connection; clearTimeout(room.timer) }
+        this.identities.send(connection)
         this.publish(documentName)
       },
       beforeSync: async ({ documentName, connection, type }) => {
@@ -74,7 +84,7 @@ export class FileRooms {
         else if (message.type === 'file-close') { this.end(documentName); return }
         this.publish(documentName)
       },
-      onDisconnect: async ({ documentName, socketId }) => {
+      onDisconnect: async ({ documentName, document, socketId }) => {
         const room = this.room(documentName)
         if (!room) return
         if (room.ownerSocket === socketId) {
@@ -84,9 +94,11 @@ export class FileRooms {
           room.timer.unref()
           this.publish(documentName)
         }
+        this.identities.publish(document)
       },
-      onAwarenessUpdate: async ({ document, connection, updated }) => {
-        if (connection) for (const id of updated) document.getClients(connection).add(id)
+      onAwarenessUpdate: async ({ document, connection, added, updated }) => {
+        this.identities.capture(document, connection, [...added, ...updated])
+        this.identities.publish(document)
       },
     })
   }
@@ -168,6 +180,16 @@ export class FileRooms {
     if (!room || !doc) return
     for (const connection of doc.getConnections()) connection.readOnly = connection !== room.owner && !room.active
     doc.broadcastStateless(JSON.stringify({ type: 'file-state', active: room.active, revision: room.revision, fileName: room.fileName }))
+  }
+
+  /** Пассивный снимок уже загруженных комнат для мониторинга. */
+  activityRooms(): ActiveFileRoom[] {
+    return [...this.rooms].flatMap(([id, room]) => {
+      const document = this.transport.hocuspocus.documents.get(room.name)
+      return document && document.getConnectionsCount() > 0
+        ? [{ id, fileName: room.fileName, ownerSocketId: room.ownerSocket, document }]
+        : []
+    })
   }
 
   private end(id: string) {

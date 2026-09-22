@@ -15,6 +15,13 @@ it.each([
   expect(collaborationUrl(new URL(page))).toBe(expected)
 })
 
+it('builds the activity WebSocket URL relative to the application root', () => {
+  expect(collaborationUrl('http://gateway.test/decompose/', 'activity-collaboration'))
+    .toBe('ws://gateway.test/decompose/activity-collaboration')
+  expect(collaborationUrl('https://gateway.test/tools/tree/', 'activity-collaboration'))
+    .toBe('wss://gateway.test/tools/tree/activity-collaboration')
+})
+
 it('keeps browser source free of fixed network endpoints and direct UUID calls outside the helper', () => {
   const namespaces = new Set(['http://graphml.graphdrawing.org/xmlns', 'http://www.yworks.com/xml/graphml'])
   for (const directory of ['src/client', 'src/domain', 'src/shared']) {

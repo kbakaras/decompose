@@ -3,7 +3,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import type { ProjectedNode, TextAlign } from '../domain'
 import type { Participant } from './session'
 
-export interface EditState { id: string; draft: string; isNew: boolean }
+export interface EditState { id: string; draft: string; baseText: string; isNew: boolean }
 export interface CellData extends Record<string, unknown> {
   node: ProjectedNode
   index: number

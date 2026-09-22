@@ -15,11 +15,14 @@ import { relativeAppRoot, setHtmlBase } from '../shared/app-base'
 import { Replacements } from './replacement'
 import { FileRooms } from './file-rooms'
 import { DIAGRAM_FILE_LIMIT } from '../shared/diagram-file'
+import { ActivityService } from './activity'
+import { ConnectionIdentities } from './connection-identities'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
   mkdirSync(options.dataDir, { recursive: true })
   const storage = new TrackerStorage(resolve(options.dataDir, 'decompose.sqlite'))
-  const fileRooms = new FileRooms(undefined, { get: id => storage.fileSessionHash(id), set: (id, hash) => storage.registerFileSession(id, hash) })
+  const identities = new ConnectionIdentities()
+  const fileRooms = new FileRooms(undefined, { get: id => storage.fileSessionHash(id), set: (id, hash) => storage.registerFileSession(id, hash) }, identities)
   let replacements: Replacements
   const transport = new Server({
     quiet: true,
@@ -44,9 +47,15 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     async beforeSync({ documentName, connection }) {
       connection.readOnly = !storage.accepts(documentName) || !replacements.canWrite(documentName, connection)
     },
-    async connected({ documentName, connection }) { replacements.joined(documentName, connection) },
+    async connected({ documentName, connection }) {
+      replacements.joined(documentName, connection)
+      identities.send(connection)
+    },
     async onStateless(payload) { replacements.acknowledge(payload) },
-    async onDisconnect({ documentName }) { replacements.disconnected(documentName) },
+    async onDisconnect({ documentName, document }) {
+      replacements.disconnected(documentName)
+      identities.publish(document)
+    },
     async afterLoadDocument({ document }) {
       const version = getStructures(document).meta.get('schemaVersion')
       if (version !== undefined && version !== 1 && version !== SCHEMA_VERSION) {
@@ -54,16 +63,16 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
       }
       initializeDocument(document)
     },
-    async onAwarenessUpdate({ document, connection, updated }) {
-      if (!connection) return
-      // Yjs помечает возвращение известного client ID как updated, а Hocuspocus 4
-      // привязывает к соединению только added. Без этого close оставляет ghost presence.
-      const clients = document.getClients(connection)
-      for (const clientId of updated) clients.add(clientId)
+    async onAwarenessUpdate({ document, connection, added, updated }) {
+      // Capture также привязывает updated client ID к восстановленному соединению.
+      // Без этого Hocuspocus 4 оставляет ghost presence после reconnect.
+      identities.capture(document, connection, [...added, ...updated])
+      identities.publish(document)
     },
   })
   const collaboration = transport.hocuspocus
   replacements = new Replacements(storage, collaboration)
+  const activity = new ActivityService(collaboration, storage, fileRooms, identities)
   const app = express()
   app.disable('x-powered-by')
   app.get('/healthz', (_request, response) => response.json({ status: 'ok' }))
@@ -209,7 +218,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   }
   app.use('/api', apiError)
   let shell: Promise<string> | undefined
-  app.get(['/', '/index.html', '/tracker/:key', '/diagram/:id', '/file/local/:id', '/file/session/:id'], async (request, response) => {
+  app.get(['/', '/index.html', '/activity', '/tracker/:key', '/diagram/:id', '/file/local/:id', '/file/session/:id'], async (request, response) => {
     shell ??= readFile(resolve(options.clientDir, 'index.html'), 'utf8').catch(error => { shell = undefined; throw error })
     response.type('html').set('Cache-Control', 'no-cache').send(setHtmlBase(await shell, relativeAppRoot(request.path)))
   })
@@ -220,14 +229,19 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   const upgrade = server.listeners('upgrade')[0]
   server.removeAllListeners('upgrade')
   server.on('upgrade', (request, socket, head) => {
-    if (new URL(request.url ?? '/', 'http://localhost').pathname === '/file-collaboration') {
+    const path = new URL(request.url ?? '/', 'http://localhost').pathname
+    if (path === '/file-collaboration') {
       fileRooms.transport.httpServer.emit('upgrade', request, socket, head)
+    } else if (path === '/activity-collaboration') {
+      activity.transport.httpServer.emit('upgrade', request, socket, head)
     } else upgrade.call(server, request, socket, head)
   })
 
   return {
     collaboration,
     fileRooms,
+    activity,
+    identities,
     async listen(port = 3000, host = '127.0.0.1') {
       // Проверяем SQLite до приёма клиентов; документы создаются только явным действием.
       await storage.onConfigure()
@@ -242,6 +256,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     },
     async close() {
       replacements.close()
+      await activity.close()
       await fileRooms.close()
       await transport.destroy()
       storage.db?.close()

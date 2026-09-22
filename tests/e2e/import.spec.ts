@@ -5,9 +5,12 @@ import { expect, test, namedContext, type Page } from './fixtures'
 
 const fixture = resolve('tests/fixtures/yed-tree.graphml')
 const cell = (page: Page, text: string) => page.locator(`[data-text="${text}"]`)
-const ready = async (page: Page) => {
-  await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
+const ready = async (page: Page, cellCount?: number) => {
   await expect(page.getByTestId('connection')).toHaveAttribute('data-connected', 'true')
+  if (cellCount !== undefined) {
+    await expect(page.locator('[data-cell-id]')).toHaveCount(cellCount, { timeout: 10_000 })
+  }
+  await expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
 }
 async function picker(page: Page) {
   await page.getByRole('button', { name: 'Схемы', exact: true }).click()
@@ -65,7 +68,7 @@ test('imports all yEd nodes with semantic order and green status; reload, collab
   try {
     const peer = await context.newPage()
     await peer.goto(url)
-    await ready(peer)
+    await ready(peer, 28)
     await expect(cell(peer, 'Узел 2')).toHaveAttribute('data-status', 'done')
     await cell(page, 'Учебная схема').dblclick()
     await page.getByRole('textbox', { name: 'Текст клеточки' }).fill('Импорт отредактирован')

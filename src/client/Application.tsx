@@ -11,14 +11,19 @@ import { pickWritableFile, type WritableFile } from './diagram-file'
 import { FilePermission, type FileLease, type FileRecord } from './file-records'
 import { Home } from './Home'
 import { clearLegacyMain } from './legacy-main'
+import { ActivityPage } from './ActivityPage'
+
+function initialRouteKind() {
+  try { return parseDiagramRoute(new URL(location.href), new URL(appBaseUrl)).kind } catch { return null }
+}
 
 export function Application() {
   const { requestIdentity, editIdentity, cancelIdentity, dialog } = useIdentityPrompt()
   const [header, setHeader] = useState<HTMLElement | null>(null)
   const [session, setSession] = useState<Session | null>(null)
-  const [home, setHome] = useState(() => {
-    try { return parseDiagramRoute(new URL(location.href), new URL(appBaseUrl)).kind === 'home' } catch { return false }
-  })
+  const initialKind = useRef(initialRouteKind())
+  const [home, setHome] = useState(initialKind.current === 'home')
+  const [activity, setActivity] = useState(initialKind.current === 'activity')
   const [homeVisit, setHomeVisit] = useState(0)
   const [switching, setSwitching] = useState(false)
   const [showLoadingNotice, setShowLoadingNotice] = useState(false)
@@ -31,7 +36,7 @@ export function Application() {
   const leaveDialog = useRef<HTMLDialogElement>(null)
   const active = useRef<Session | null>(null)
   const activeUrl = useRef(location.href)
-  const beforeLeave = useRef<(() => void) | null>(null)
+  const beforeLeave = useRef<(() => boolean) | null>(null)
   const generation = useRef(0)
   const pending = useRef<AbortController | null>(null)
   const queue = useRef(Promise.resolve())
@@ -42,19 +47,23 @@ export function Application() {
     noticeTimer.current = undefined
   }, [])
 
-  const registerBeforeLeave = useCallback((callback: () => void) => {
+  const registerBeforeLeave = useCallback((callback: () => boolean) => {
     beforeLeave.current = callback
     return () => { if (beforeLeave.current === callback) beforeLeave.current = null }
   }, [])
 
   const navigate = useCallback((href: string, mode: 'push' | 'pop' | 'initial' = 'push', force = false, local?: { handle: WritableFile; text: string; lease?: FileLease }, discard = false, recreateDeletedId?: string): Promise<void> => {
     const url = new URL(href, appBaseUrl)
+    if (beforeLeave.current?.() === false) {
+      local?.lease?.release()
+      if (mode === 'pop') history.replaceState(null, '', activeUrl.current)
+      return Promise.resolve()
+    }
     const currentGeneration = ++generation.current
     cancelIdentity()
     pending.current?.abort()
     const controller = new AbortController()
     pending.current = controller
-    beforeLeave.current?.()
     setSwitching(true)
     cancelNoticeTimer()
     setShowLoadingNotice(false)
@@ -88,14 +97,15 @@ export function Application() {
           url.href = canonicalDiagramUrl(url, new URL(appBaseUrl)).href
           if (mode !== 'push' && location.href !== url.href) history.replaceState(null, '', url)
         }
-        if (route.kind === 'home') {
+        if (route.kind === 'home' || route.kind === 'activity') {
           await flushPrevious()
           controller.signal.throwIfAborted()
           const closing = active.current?.destroy()
           active.current = null; setSession(null); setNeedsFile(false)
-          setHome(true)
+          setHome(route.kind === 'home')
+          setActivity(route.kind === 'activity')
           // На первом входе Home уже смонтирован и мог обработать choose=1.
-          if (mode !== 'initial') setHomeVisit(value => value + 1)
+          if (route.kind === 'home' && mode !== 'initial') setHomeVisit(value => value + 1)
           if (mode === 'push' && location.href !== url.href) history.pushState(null, '', url)
           else if (mode !== 'push') history.replaceState(null, '', url)
           activeUrl.current = url.href
@@ -120,7 +130,7 @@ export function Application() {
             : route.kind === 'file' || route.kind === 'local-file' ? await restoreFileSession(id, route.kind === 'file', controller.signal)
               : await openSession(id, controller.signal, tracker, force)
           if (!candidate) {
-            await active.current?.destroy(); active.current = null; setSession(null); setHome(false); setNeedsFile(true)
+            await active.current?.destroy(); active.current = null; setSession(null); setHome(false); setActivity(false); setNeedsFile(true)
             if (mode === 'push') history.pushState(null, '', url); else history.replaceState(null, '', url)
             activeUrl.current = url.href
             return
@@ -135,6 +145,7 @@ export function Application() {
           active.current = candidate
           setSession(candidate)
           setHome(false)
+          setActivity(false)
           setNeedsFile(false)
           candidate = null
         }
@@ -226,6 +237,7 @@ export function Application() {
       ? <App key={session.doc.clientID} session={session} header={header} switching={switching}
         navigate={navigate} openLocal={openLocal} reload={() => navigate(activeUrl.current, 'initial', true)}
         registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
+      : activity && header ? <ActivityPage header={header} navigate={navigate} switching={switching} />
       : home ? <Home key={homeVisit} navigate={navigate} requestIdentity={requestIdentity} openLocal={openLocal} switching={switching} />
       : <div className="loading">{needsFile ? <>
         <p>{fileRecovery?.record ? `Нужно разрешение на файл «${fileRecovery.record.handle.name}».` : 'Не удалось восстановить файл. Его содержимое хранится только на диске.'}</p>
