@@ -48,13 +48,16 @@
 
 == Запуск
 
-Нужен Node.js 24 LTS и npm. Зависимости закреплены в `package-lock.json`.
+Нужен Node.js 24 LTS и npm. Другие major-версии намеренно запрещены, поскольку нативная зависимость `better-sqlite3` привязана к ABI Node.js. Файл `.nvmrc` выбирает нужную версию через nvm, а зависимости закреплены в `package-lock.json`.
 
 [source,shell]
 ----
+nvm use
 npm ci
 npm run dev
 ----
+
+Если Node.js 24 ещё не установлен, выполни `nvm install` вместо `nvm use`. После перехода с другой major-версии однократно выполни `npm ci`, чтобы пересоздать `node_modules` для правильного ABI.
 
 Открой `http://localhost:5173`. Vite проксирует API и collaboration на backend `127.0.0.1:3000`.
 
