@@ -788,12 +788,14 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       navigate={navigateToDiagram} requestIdentity={requestIdentity} />
     <StorageActions mode={storageMode} close={() => setStorageMode(null)} returnFocus={focusCanvas} session={session} title={documentTitle}
       navigate={navigateToDiagram} openLocal={openLocal} requestIdentity={requestIdentity} />
-    <dialog ref={shareDialog} className="diagrams-dialog file-dialog" aria-label="Совместная файловая сессия" onClose={focusCanvas} onCancel={() => setShareLink('')}>
+    <dialog ref={shareDialog} className="diagrams-dialog file-dialog confirmation-dialog" aria-label="Совместная файловая сессия" onClose={focusCanvas} onCancel={() => setShareLink('')}>
       <h2>Совместная файловая сессия</h2>
       <p>Передай ссылку ниже участникам. Адрес этой вкладки остаётся локальным. Держи её открытой: только она сохраняет изменения в твой файл.</p>
       <input aria-label="Ссылка файловой сессии" readOnly value={shareLink} onFocus={event => event.target.select()} />
-      <button onClick={() => setShareLink('')}>Готово</button>
-      <button onClick={() => { session.roomClose?.(); setShareLink('') }}>Завершить сессию</button>
+      <div className="dialog-actions">
+        <button onClick={() => { session.roomClose?.(); setShareLink('') }}>Завершить сессию</button>
+        <button onClick={() => setShareLink('')}>Готово</button>
+      </div>
     </dialog>
     <dialog ref={parametersDialog} className="diagrams-dialog card-parameters-dialog" aria-labelledby="card-parameters-heading"
       onCancel={event => { event.preventDefault(); closeParameters() }}>
@@ -814,8 +816,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
             }
           }}>Удалить ссылку</button>}
           <span className="dialog-actions-spacer" />
-          <button type="button" onClick={closeParameters}>Отмена</button>
           <button type="submit">Сохранить</button>
+          <button type="button" onClick={closeParameters}>Отмена</button>
         </div>
       </form>
     </dialog>

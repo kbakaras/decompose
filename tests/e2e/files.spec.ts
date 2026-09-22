@@ -473,6 +473,8 @@ async function shareDisk(page: Page) {
   expect(new URL(ownerUrl).pathname).toContain('/file/local/')
   expect(new URL(url).pathname).toContain('/file/session/')
   expect(new URL(url).pathname.split('/').at(-1)).toBe(new URL(ownerUrl).pathname.split('/').at(-1))
+  await expect(page.getByRole('dialog', { name: 'Совместная файловая сессия' }).getByRole('button').allTextContents())
+    .resolves.toEqual(['Завершить сессию', 'Готово'])
   await page.getByRole('button', { name: 'Готово', exact: true }).click()
   await expect(page.locator('main')).toBeFocused()
   return url

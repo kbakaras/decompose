@@ -113,6 +113,31 @@ export class TrackerStorage extends SQLite {
     return this.db!.prepare(`SELECT ${summaryColumns} FROM tracker_diagrams WHERE document_id = ?`).get(id) as TrackerSummary | undefined
   }
 
+  hasDocument(id: string): boolean {
+    return !!this.db!.prepare('SELECT 1 FROM documents WHERE name = ?').get(id)
+  }
+
+  /** Восстанавливает отсутствующий документ из явно выбранного архива. */
+  restoreDocument(id: string, document: Y.Doc, trackerKey?: string): TrackerSummary | undefined {
+    return this.db!.transaction(() => {
+      if (this.hasDocument(id)) throw new StorageConflict('Документ с таким ID уже существует.')
+      if (trackerKey && this.findTracker(trackerKey)) throw new StorageConflict('Дерево этой задачи уже существует.')
+      const deleted = this.deleted(id)
+      if (deleted && deleted.trackerKey !== (trackerKey ?? null)) {
+        throw new StorageConflict('ID принадлежал документу другого режима.')
+      }
+      this.db!.prepare('DELETE FROM deleted_documents WHERE id = ?').run(id)
+      this.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(document)))
+      if (!trackerKey) return undefined
+      const root = getStructures(document).nodes.get(ROOT_ID)
+      const title = normalizeTitle(root ? readText(root) : '')
+      const updatedAt = Date.now()
+      this.db!.prepare('INSERT INTO tracker_diagrams (tracker_key, document_id, title, search_text, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(trackerKey, id, title, `${trackerSearch(trackerKey)}\n${trackerSearch(title)}`, updatedAt)
+      return { id, trackerKey, title: title || trackerKey, updatedAt }
+    }).immediate()
+  }
+
   listTracker(query: string, offset: number): TrackerPage {
     const rows = this.db!.prepare(`SELECT ${summaryColumns} FROM tracker_diagrams
       WHERE instr(search_text, ?) > 0

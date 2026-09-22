@@ -104,6 +104,9 @@ test('stale text draft requires an explicit conflict resolution', async ({ brows
 
     const conflict = draftPage.getByRole('dialog', { name: 'Текст карточки изменён' })
     await expect(conflict).toBeVisible()
+    await expect(conflict.getByRole('button').allTextContents()).resolves.toEqual([
+      'Заменить своим текстом', 'Оставить актуальный текст', 'Продолжить редактирование',
+    ])
     await expect(conflict.getByText('Правка коллеги', { exact: true })).toBeVisible()
     await expect(conflict.getByText('Мой черновик', { exact: true })).toBeVisible()
     await expect(target(peerPage)).toHaveAttribute('data-text', 'Правка коллеги')

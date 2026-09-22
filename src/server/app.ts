@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net'
 import { mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
 import { createUuid } from '../shared/uuid'
 import { resolve } from 'node:path'
 import express, { type ErrorRequestHandler } from 'express'
@@ -17,6 +18,7 @@ import { FileRooms } from './file-rooms'
 import { DIAGRAM_FILE_LIMIT } from '../shared/diagram-file'
 import { ActivityService } from './activity'
 import { ConnectionIdentities } from './connection-identities'
+import { BackupError, BackupService, removePreparedArchive, streamPreparedArchive } from './backup'
 
 export function createBackend(options: { dataDir: string; clientDir: string }) {
   mkdirSync(options.dataDir, { recursive: true })
@@ -72,6 +74,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   })
   const collaboration = transport.hocuspocus
   replacements = new Replacements(storage, collaboration)
+  const backup = new BackupService(storage, collaboration, replacements)
   const activity = new ActivityService(collaboration, storage, fileRooms, identities)
   const app = express()
   app.disable('x-powered-by')
@@ -79,6 +82,17 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   app.use('/api', (_request, response, next) => {
     response.setHeader('Cache-Control', 'no-store')
     next()
+  })
+  app.get('/api/backup', async (_request, response) => {
+    const archive = await backup.createArchive()
+    try {
+      response.attachment(archive.filename)
+      response.type('application/zip')
+      await pipeline(streamPreparedArchive(archive), response)
+    } finally { await removePreparedArchive(archive) }
+  })
+  app.post('/api/backup', async (request, response) => {
+    response.json(await backup.receiveAndRestore(request))
   })
   app.post('/api/diagrams/import', express.json({ limit: DIAGRAM_FILE_LIMIT }), (request, response) => {
     if (request.body?.format === undefined && Buffer.byteLength(JSON.stringify(request.body)) > IMPORT_JSON_LIMIT) {
@@ -209,16 +223,17 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     response.status(created ? 201 : 200).json(item)
   })
   app.use('/api', (_request, response) => { response.status(404).json({ error: 'Неизвестный API-маршрут' }) })
-  const apiError: ErrorRequestHandler = (error, _request, response, _next) => {
+  const apiError: ErrorRequestHandler = (error, _request, response, next) => {
+    if (response.headersSent) { next(error); return }
     const status = [400, 409, 413].includes(error.status) ? error.status : 500
     if (status === 500) console.error(error)
-    response.status(status).json({ error: error instanceof ImportError || status === 409 ? error.message
+    response.status(status).json({ error: error instanceof ImportError || error instanceof BackupError || status === 409 ? error.message
       : status === 413 ? 'Превышен допустимый размер запроса.'
         : status === 500 ? 'Не удалось выполнить запрос' : 'Некорректный запрос' })
   }
   app.use('/api', apiError)
   let shell: Promise<string> | undefined
-  app.get(['/', '/index.html', '/activity', '/tracker/:key', '/diagram/:id', '/file/local/:id', '/file/session/:id'], async (request, response) => {
+  app.get(['/', '/index.html', '/activity', '/backup', '/tracker/:key', '/diagram/:id', '/file/local/:id', '/file/session/:id'], async (request, response) => {
     shell ??= readFile(resolve(options.clientDir, 'index.html'), 'utf8').catch(error => { shell = undefined; throw error })
     response.type('html').set('Cache-Control', 'no-cache').send(setHtmlBase(await shell, relativeAppRoot(request.path)))
   })

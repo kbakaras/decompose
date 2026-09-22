@@ -1,12 +1,12 @@
 import { expect, it } from 'vitest'
 import { relativeAppRoot, resolveAppUrl, setHtmlBase } from '../../src/shared/app-base'
-import { activityUrl, canonicalDiagramUrl, fileSessionUrl, localFileUrl, parseDiagramRoute } from '../../src/shared/diagram-route'
+import { activityUrl, backupUrl, canonicalDiagramUrl, fileSessionUrl, localFileUrl, parseDiagramRoute } from '../../src/shared/diagram-route'
 import { diagramUrl } from '../../src/shared/diagrams'
 import { trackerUrl } from '../../src/shared/tracker'
 
 it.each([
   ['/', './'], ['/index.html', './'], ['/tracker/MC-1', '../'], ['/tracker/MC-1/', '../../'],
-  ['/diagram/main', '../'], ['/diagram/main/', '../../'], ['/activity', './'], ['/activity/', '../'],
+  ['/diagram/main', '../'], ['/diagram/main/', '../../'], ['/activity', './'], ['/activity/', '../'], ['/backup', './'], ['/backup/', '../'],
   ['/file/local/id', '../../'], ['/file/session/id/', '../../../'],
 ])('computes a prefix-independent HTML base for %s', (path, expected) => {
   expect(relativeAppRoot(path)).toBe(expected)
@@ -34,6 +34,7 @@ it.each(['http://localhost:3000/', 'http://gateway.test/decompose/', 'https://ga
   expect(parseDiagramRoute(resolveAppUrl('tracker/MC-1/', base), new URL(base))).toEqual({ kind: 'tracker', key: 'MC-1' })
   expect(parseDiagramRoute(resolveAppUrl('index.html', base), new URL(base))).toEqual({ kind: 'home' })
   expect(parseDiagramRoute(resolveAppUrl(activityUrl(), base), new URL(base))).toEqual({ kind: 'activity' })
+  expect(parseDiagramRoute(resolveAppUrl(backupUrl(), base), new URL(base))).toEqual({ kind: 'backup' })
   expect(parseDiagramRoute(resolveAppUrl(`./?localFile=${id}`, base), new URL(base))).toEqual({ kind: 'local-file', id })
   expect(parseDiagramRoute(resolveAppUrl(`./?fileSession=${id}`, base), new URL(base))).toEqual({ kind: 'file', id })
   expect(parseDiagramRoute(resolveAppUrl(localFileUrl(id), base), new URL(base))).toEqual({ kind: 'local-file', id })
@@ -51,7 +52,7 @@ it.each(['http://localhost:3000/', 'https://gateway.test/tools/tree/'])('canonic
     [`?diagram=${id}`, `diagram/${id}`], [`index.html?diagram=${id}&choose=1#note`, `diagram/${id}?choose=1#note`],
     [`?localFile=${id}`, `file/local/${id}`], [`?fileSession=${id}`, `file/session/${id}`],
     ['?localFile=1', 'file/local/1'], ['tracker/mc-12/?diagram=main&choose=1', 'tracker/MC-12?choose=1'],
-    ['activity/', 'activity'],
+    ['activity/', 'activity'], ['backup/', 'backup'],
     [`diagram/${id}/?localFile=1`, `diagram/${id}`],
     [`file/local/${id}/`, `file/local/${id}`], [`file/session/${id}/`, `file/session/${id}`],
   ]) {

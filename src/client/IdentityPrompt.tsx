@@ -51,8 +51,10 @@ export function useIdentityPrompt() {
           <input ref={input} id="identity-name" autoComplete="nickname" value={name}
             onChange={event => { setName(event.target.value); setError('') }} />
           {error && <p role="alert">{error}</p>}
-          <div className="identity-buttons"><button type="button" onClick={() => finish()}>Отмена</button>
-            <button type="submit">{browserIdentity().name ? 'Сохранить' : 'Продолжить'}</button></div>
+          <div className="identity-buttons">
+            <button type="submit">{browserIdentity().name ? 'Сохранить' : 'Продолжить'}</button>
+            <button type="button" onClick={() => finish()}>Отмена</button>
+          </div>
         </form>
       </dialog>}
       {warning && <div className="notice navigation-error" role="alert"><span>{warning}</span>

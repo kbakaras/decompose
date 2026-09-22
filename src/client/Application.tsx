@@ -12,6 +12,7 @@ import { FilePermission, type FileLease, type FileRecord } from './file-records'
 import { Home } from './Home'
 import { clearLegacyMain } from './legacy-main'
 import { ActivityPage } from './ActivityPage'
+import { BackupPage } from './BackupPage'
 
 function initialRouteKind() {
   try { return parseDiagramRoute(new URL(location.href), new URL(appBaseUrl)).kind } catch { return null }
@@ -24,6 +25,7 @@ export function Application() {
   const initialKind = useRef(initialRouteKind())
   const [home, setHome] = useState(initialKind.current === 'home')
   const [activity, setActivity] = useState(initialKind.current === 'activity')
+  const [backup, setBackup] = useState(initialKind.current === 'backup')
   const [homeVisit, setHomeVisit] = useState(0)
   const [switching, setSwitching] = useState(false)
   const [showLoadingNotice, setShowLoadingNotice] = useState(false)
@@ -97,13 +99,14 @@ export function Application() {
           url.href = canonicalDiagramUrl(url, new URL(appBaseUrl)).href
           if (mode !== 'push' && location.href !== url.href) history.replaceState(null, '', url)
         }
-        if (route.kind === 'home' || route.kind === 'activity') {
+        if (route.kind === 'home' || route.kind === 'activity' || route.kind === 'backup') {
           await flushPrevious()
           controller.signal.throwIfAborted()
           const closing = active.current?.destroy()
           active.current = null; setSession(null); setNeedsFile(false)
           setHome(route.kind === 'home')
           setActivity(route.kind === 'activity')
+          setBackup(route.kind === 'backup')
           // На первом входе Home уже смонтирован и мог обработать choose=1.
           if (route.kind === 'home' && mode !== 'initial') setHomeVisit(value => value + 1)
           if (mode === 'push' && location.href !== url.href) history.pushState(null, '', url)
@@ -130,7 +133,7 @@ export function Application() {
             : route.kind === 'file' || route.kind === 'local-file' ? await restoreFileSession(id, route.kind === 'file', controller.signal)
               : await openSession(id, controller.signal, tracker, force)
           if (!candidate) {
-            await active.current?.destroy(); active.current = null; setSession(null); setHome(false); setActivity(false); setNeedsFile(true)
+            await active.current?.destroy(); active.current = null; setSession(null); setHome(false); setActivity(false); setBackup(false); setNeedsFile(true)
             if (mode === 'push') history.pushState(null, '', url); else history.replaceState(null, '', url)
             activeUrl.current = url.href
             return
@@ -146,6 +149,7 @@ export function Application() {
           setSession(candidate)
           setHome(false)
           setActivity(false)
+          setBackup(false)
           setNeedsFile(false)
           candidate = null
         }
@@ -238,6 +242,7 @@ export function Application() {
         navigate={navigate} openLocal={openLocal} reload={() => navigate(activeUrl.current, 'initial', true)}
         registerBeforeLeave={registerBeforeLeave} requestIdentity={requestIdentity} editIdentity={editIdentity} />
       : activity && header ? <ActivityPage header={header} navigate={navigate} switching={switching} />
+      : backup && header ? <BackupPage header={header} switching={switching} />
       : home ? <Home key={homeVisit} navigate={navigate} requestIdentity={requestIdentity} openLocal={openLocal} switching={switching} />
       : <div className="loading">{needsFile ? <>
         <p>{fileRecovery?.record ? `Нужно разрешение на файл «${fileRecovery.record.handle.name}».` : 'Не удалось восстановить файл. Его содержимое хранится только на диске.'}</p>

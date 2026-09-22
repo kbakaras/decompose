@@ -35,6 +35,7 @@ test('guest can browse; all keyboard and menu edits ask, cancellation changes no
   }
   await root(page).dblclick()
   await expect(profile(page)).toBeVisible()
+  await expect(profile(page).getByRole('button').allTextContents()).resolves.toEqual(['Продолжить', 'Отмена'])
   await page.getByRole('button', { name: 'Отмена', exact: true }).click()
   await page.getByRole('button', { name: 'Действия с клеточкой' }).click()
   await page.getByRole('button', { name: 'Статус', exact: false }).click()

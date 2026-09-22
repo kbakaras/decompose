@@ -66,6 +66,7 @@ test('task cards link to other task trees through F4, mouse and Ctrl+Enter', asy
   await page.keyboard.press('F4')
   const dialog = page.getByRole('dialog', { name: 'Параметры карточки' })
   await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button').allTextContents()).resolves.toEqual(['Сохранить', 'Отмена'])
   const input = dialog.getByLabel('Ссылка на задачу')
   await input.fill('не ключ')
   await dialog.getByRole('button', { name: 'Сохранить' }).click()
