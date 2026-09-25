@@ -22,6 +22,34 @@ import { hasTextConflict } from './text-draft'
 
 const nodeTypes = { cell: Cell }
 
+function highlightedEdgeIds(
+  tree: ReturnType<typeof projectTree>,
+  activeId: string,
+  activeParentId: string | null | undefined,
+) {
+  const result = new Set<string>()
+  const pendingDescendants = [...(tree.children.get(activeId) ?? [])]
+  while (pendingDescendants.length) {
+    const descendantId = pendingDescendants.pop()!
+    if (result.has(descendantId)) continue
+    result.add(descendantId)
+    pendingDescendants.push(...(tree.children.get(descendantId) ?? []))
+  }
+
+  const visitedAncestors = new Set<string>()
+  let childId = activeId
+  let parentId = activeParentId === undefined ? tree.nodes.get(activeId)?.parentId : activeParentId
+
+  while (parentId && !visitedAncestors.has(childId)) {
+    visitedAncestors.add(childId)
+    result.add(childId)
+    childId = parentId
+    parentId = tree.nodes.get(parentId)?.parentId ?? null
+  }
+
+  return result
+}
+
 interface WorkspaceProps {
   session: Session
   header: HTMLElement
@@ -547,15 +575,22 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     },
   }))
   const draggedId = drag?.phase === 'dragging' ? drag.snapshot.id : null
-  const previewParentId = drag?.phase === 'dragging' ? drag.target?.parentId : null
+  const previewParentId = drag?.phase === 'dragging' ? drag.target?.parentId ?? null : null
+  const previewingParent = draggedId === active && previewParentId !== null
+  const highlightedEdges = highlightedEdgeIds(tree, active, previewingParent ? previewParentId : undefined)
   const edges: Edge[] = [...tree.nodes.values()].flatMap(node => {
-    const preview = node.id === draggedId
+    const preview = node.id === draggedId && previewParentId !== null
+    const highlighted = highlightedEdges.has(node.id)
     const source = preview ? previewParentId : node.parentId
     return source ? [{
       id: node.id, source, target: node.id, type: 'smoothstep',
       hidden: !positions.has(node.id) || !positions.has(source),
-      className: preview ? 'edge-preview' : undefined,
-      style: { stroke: preview ? '#687c5f' : '#bdb8aa', strokeWidth: preview ? 2 : 1.5 },
+      zIndex: highlighted ? 1 : 0,
+      className: [preview && 'edge-preview', highlighted && 'edge-active-path'].filter(Boolean).join(' ') || undefined,
+      style: {
+        stroke: highlighted ? '#202020' : preview ? '#687c5f' : '#bdb8aa',
+        strokeWidth: highlighted ? 1.5 : preview ? 2 : 1.5,
+      },
     }] : []
   })
   const siblingDrop = drag?.target?.kind === 'sibling' ? drag.target : null

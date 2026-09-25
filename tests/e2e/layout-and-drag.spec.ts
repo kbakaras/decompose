@@ -162,6 +162,10 @@ async function dragAsChild(page: Page, sourceId: string, targetId: string) {
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
   await page.mouse.down()
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 + 8, { steps: 3 })
+  await expect(source).toHaveClass(/cell-dragging/)
+  const original = page.getByLabel(`Edge from ${originalParentId} to ${sourceId}`)
+  await expect(original).toHaveCount(1)
+  await expect(original).not.toHaveClass(/edge-preview/)
   await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 15 })
   await expect(target).toHaveClass(/cell-drop-child/)
   await expect(page.getByTestId('drop-indicator')).toHaveCount(0)
@@ -169,7 +173,7 @@ async function dragAsChild(page: Page, sourceId: string, targetId: string) {
   await expect(preview).toHaveCount(1)
   await expect(preview).toHaveAttribute('aria-label', `Edge from ${targetId} to ${sourceId}`)
   if (originalParentId !== targetId) {
-    await expect(page.getByLabel(`Edge from ${originalParentId} to ${sourceId}`)).toHaveCount(0)
+    await expect(original).toHaveCount(0)
   }
 }
 
@@ -204,6 +208,43 @@ test('decorative handles do not intercept the pointer or offer connections', asy
       expect(hit).toEqual({ handle: false, cursor })
     }
   }
+})
+
+test('active card highlights its path to root and the whole subtree above other edges', async ({ page }) => {
+  await open(page)
+  await cell(page, 'root').click()
+  const parent = await create(page, 'Tab', 'Родитель')
+  const active = await create(page, 'Tab', 'Выбранная карточка')
+  const child = await create(page, 'Tab', 'Первый ребёнок')
+  const grandchild = await create(page, 'Tab', 'Внук')
+  await cell(page, active).click()
+  const secondChild = await create(page, 'Tab', 'Второй ребёнок')
+  await cell(page, active).click()
+  const unrelated = await create(page, 'Enter', 'Соседняя ветка')
+  await cell(page, active).click()
+
+  const edge = (source: string, target: string) => page.getByLabel(`Edge from ${source} to ${target}`)
+  for (const [source, target] of [
+    ['root', parent],
+    [parent, active],
+    [active, child],
+    [child, grandchild],
+    [active, secondChild],
+  ]) {
+    await expect(edge(source, target)).toHaveClass(/edge-active-path/)
+  }
+  await expect(edge(parent, unrelated)).not.toHaveClass(/edge-active-path/)
+  await expect(edge(parent, active).locator('.react-flow__edge-path')).toHaveCSS('stroke', 'rgb(32, 32, 32)')
+  await expect(edge(parent, active).locator('.react-flow__edge-path')).toHaveCSS('stroke-width', '1.5px')
+  expect(await edge(parent, active).evaluate(element => element.parentElement?.style.zIndex)).toBe('1')
+  expect(await edge(parent, unrelated).evaluate(element => element.parentElement?.style.zIndex)).toBe('0')
+
+  await page.keyboard.press('ArrowLeft')
+  await expect(cell(page, parent)).toHaveAttribute('data-active', 'true')
+  await page.keyboard.press('ArrowLeft')
+  await expect(cell(page, 'root')).toHaveAttribute('data-active', 'true')
+  await expect(edge('root', parent)).toHaveClass(/edge-active-path/)
+  await expect(edge(child, grandchild)).toHaveClass(/edge-active-path/)
 })
 
 test('canvas, root and inactive cards pan, while an active single child is draggable', async ({ page }) => {
