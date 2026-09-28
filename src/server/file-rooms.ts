@@ -18,6 +18,14 @@ interface Room {
   active: boolean
   revision: number
   timer?: ReturnType<typeof setTimeout>
+  reload?: {
+    operation: string
+    expected: Set<Connection>
+    ready: Set<Connection>
+    activeBefore: boolean
+    prepared: boolean
+    timer: ReturnType<typeof setTimeout>
+  }
 }
 
 export interface ActiveFileRoom {
@@ -71,9 +79,55 @@ export class FileRooms {
       },
       onStateless: async ({ documentName, connection, payload }) => {
         const room = this.room(documentName)
-        if (!room || room.owner !== connection) return
+        if (!room) return
         let message
         try { message = JSON.parse(payload) } catch { return }
+        const currentReload = room.reload
+        if (message.type === 'file-reload-ready' && currentReload && currentReload.operation === message.operation
+          && currentReload.expected.has(connection)) {
+          currentReload.ready.add(connection)
+          this.finishReloadPreparation(documentName, room)
+          return
+        }
+        if (message.type === 'file-reload-failed' && currentReload && currentReload.operation === message.operation
+          && currentReload.expected.has(connection)) {
+          this.cancelReload(documentName, room, 'Не все участники смогли подготовиться к обновлению файла.')
+          return
+        }
+        if (room.owner !== connection) return
+        if (message.type === 'file-reload-prepare' && isDiagramId(message.operation)) {
+          if (room.reload) this.cancelReload(documentName, room, 'Начата другая проверка файла.')
+          const document = this.transport.hocuspocus.documents.get(documentName)
+          if (!document) return
+          const reload = {
+            operation: message.operation,
+            expected: new Set(document.getConnections()),
+            ready: new Set<Connection>(),
+            activeBefore: room.active,
+            prepared: false,
+            timer: setTimeout(() => this.cancelReload(documentName, room, 'Участники не подтвердили обновление файла за 15 секунд.'), 15000),
+          }
+          reload.timer.unref()
+          room.reload = reload
+          room.active = false
+          document.broadcastStateless(JSON.stringify({ type: 'file-reload-prepare', operation: reload.operation }))
+          this.publish(documentName)
+          return
+        }
+        const preparedReload = room.reload
+        if (message.type === 'file-reload-apply' && preparedReload && preparedReload.operation === message.operation && preparedReload.prepared) {
+          const document = this.transport.hocuspocus.documents.get(documentName)
+          if (!document) return
+          clearTimeout(preparedReload.timer)
+          room.reload = undefined
+          room.active = true
+          room.saved = JSON.stringify(snapshotDiagram(document))
+          if (typeof message.fileName === 'string' && message.fileName.length > 0 && message.fileName.length <= 1024
+            && !/[\\/\u0000-\u001f\u007f]/.test(message.fileName)) room.fileName = message.fileName
+          document.broadcastStateless(JSON.stringify({ type: 'file-reloaded', operation: message.operation, revision: room.revision }))
+          this.publish(documentName)
+          return
+        }
         if (message.type === 'file-saved' && message.revision === room.revision) {
           room.active = true
           room.saved = JSON.stringify(snapshotDiagram(this.transport.hocuspocus.documents.get(documentName)!))
@@ -88,6 +142,7 @@ export class FileRooms {
         const room = this.room(documentName)
         if (!room) return
         if (room.ownerSocket === socketId) {
+          if (room.reload) this.cancelReload(documentName, room, 'Владелец отключился во время обновления файла.')
           room.owner = undefined; room.ownerSocket = undefined; room.active = false
           clearTimeout(room.timer)
           room.timer = setTimeout(() => this.end(documentName), this.lifetime)
@@ -179,7 +234,27 @@ export class FileRooms {
     const doc = this.transport.hocuspocus.documents.get(id)
     if (!room || !doc) return
     for (const connection of doc.getConnections()) connection.readOnly = connection !== room.owner && !room.active
-    doc.broadcastStateless(JSON.stringify({ type: 'file-state', active: room.active, revision: room.revision, fileName: room.fileName }))
+    doc.broadcastStateless(JSON.stringify({ type: 'file-state', active: room.active, revision: room.revision,
+      reloading: !!room.reload, fileName: room.fileName }))
+  }
+
+  private finishReloadPreparation(documentName: string, room: Room) {
+    const reload = room.reload
+    if (!reload || reload.prepared || [...reload.expected].some(connection => !reload.ready.has(connection))) return
+    reload.prepared = true
+    room.owner?.sendStateless(JSON.stringify({ type: 'file-reload-prepared', operation: reload.operation, revision: room.revision }))
+  }
+
+  private cancelReload(documentName: string, room: Room, message: string) {
+    const reload = room.reload
+    if (!reload) return
+    clearTimeout(reload.timer)
+    room.reload = undefined
+    room.active = reload.activeBefore
+    this.transport.hocuspocus.documents.get(documentName)?.broadcastStateless(JSON.stringify({
+      type: 'file-reload-cancelled', operation: reload.operation, message,
+    }))
+    this.publish(documentName)
   }
 
   /** Пассивный снимок уже загруженных комнат для мониторинга. */
@@ -197,6 +272,7 @@ export class FileRooms {
     const room = this.rooms.get(id)
     if (!room) return
     clearTimeout(room.timer)
+    if (room.reload) clearTimeout(room.reload.timer)
     this.rooms.delete(id)
     const doc: Document | undefined = this.transport.hocuspocus.documents.get(room.name)
     doc?.broadcastStateless(JSON.stringify({ type: 'file-ended' }))

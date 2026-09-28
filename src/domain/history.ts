@@ -39,6 +39,8 @@ export class DocumentHistory {
   undo(): CommandOrigin | null { return this.apply('undo') }
   redo(): CommandOrigin | null { return this.apply('redo') }
 
+  clear(): void { this.manager.clear() }
+
   cancelCreation(nodeId: NodeId): boolean {
     const command = this.manager.undoStack.at(-1)?.meta.get(COMMAND) as CommandOrigin | undefined
     if (command?.kind !== 'create-node' || command.nodeId !== nodeId) return false

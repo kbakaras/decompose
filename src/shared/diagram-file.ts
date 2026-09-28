@@ -15,11 +15,24 @@ export function validateDiagramFile(value: unknown): DiagramFile {
   if (!value || typeof value !== 'object' || !('format' in value) || value.format !== 'decompose'
     || !('version' in value) || value.version !== 1) throw new ImportError('Неизвестный формат или версия файла дерево·дел.')
   if (new TextEncoder().encode(JSON.stringify(value)).length > DIAGRAM_FILE_LIMIT) throw new ImportError('Файл превышает 5 МиБ.')
-  const { nodes } = validateImport(value, Infinity)
+  const tree = validateImport(value, Infinity)
+  if (tree.rootId !== 'root') throw new ImportError('Корневой узел файла дерево·дел должен иметь ID root.')
   const settings = 'settings' in value ? value.settings : null
   if (!settings || typeof settings !== 'object' || !('textAlign' in settings)
     || (settings.textAlign !== 'left' && settings.textAlign !== 'center')) throw new ImportError('Некорректное выравнивание текста в файле.')
+  const byId = new Map(tree.nodes.map(node => [node.id, node]))
+  const nodes: ImportNode[] = []
+  const pending = [tree.rootId]
+  while (pending.length) {
+    const node = byId.get(pending.pop()!)!
+    nodes.push(node)
+    pending.push(...node.children.slice().reverse())
+  }
   return { format: 'decompose', version: 1, nodes, settings: { textAlign: settings.textAlign } }
+}
+
+export function sameDiagramFile(first: DiagramFile, second: DiagramFile): boolean {
+  return JSON.stringify(first) === JSON.stringify(second)
 }
 
 export function parseDiagramFile(text: string): DiagramFile {

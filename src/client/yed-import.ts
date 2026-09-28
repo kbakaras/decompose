@@ -1,4 +1,5 @@
 import { ImportError, IMPORT_FILE_LIMIT, IMPORT_JSON_LIMIT, IMPORT_NODE_LIMIT, validateImport, type ImportNode } from '../shared/diagram-import'
+import { createUuid } from '../shared/uuid'
 
 const graphml = 'http://graphml.graphdrawing.org/xmlns'
 const yworks = 'http://www.yworks.com/xml/graphml'
@@ -95,7 +96,9 @@ export function parseYedGraphml(xml: string): { nodes: ImportNode[] } {
     const first = centers.get(a)!, second = centers.get(b)!
     return first.y - second.y || first.x - second.x || (a < b ? -1 : a > b ? 1 : 0)
   })
-  const result = { nodes: validateImport({ nodes }).nodes }
+  const validated = validateImport({ nodes })
+  const ids = new Map(validated.nodes.map(node => [node.id, node.id === validated.rootId ? 'root' : createUuid()]))
+  const result = { nodes: validated.nodes.map(node => ({ ...node, id: ids.get(node.id)!, children: node.children.map(id => ids.get(id)!) })) }
   if (new TextEncoder().encode(JSON.stringify(result)).length > IMPORT_JSON_LIMIT) throw new ImportError('Данные схемы превышают 1 МиБ.')
   return result
 }

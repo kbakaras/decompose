@@ -12,7 +12,7 @@ import { FileRooms } from '../../src/server/file-rooms'
 import { Replacements } from '../../src/server/replacement'
 import { TrackerStorage } from '../../src/server/tracker-storage'
 
-const file = { format: 'decompose', version: 1, nodes: [{ id: 'r', text: 'Восстановлено', status: 'done', children: [] }], settings: { textAlign: 'center' } }
+const file = { format: 'decompose', version: 1, nodes: [{ id: 'root', text: 'Восстановлено', status: 'done', children: [] }], settings: { textAlign: 'center' } }
 const uuid = () => crypto.randomUUID()
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'decompose-files-'))
@@ -341,6 +341,38 @@ it('file collaboration is memory-only, pauses without the owner and cannot be re
     expect(projectTree(restored.provider.document).nodes.get(ROOT_ID)?.text).toBe('Только в оперативной памяти')
     restored.provider.sendStateless(JSON.stringify({ type: 'file-close' }))
     await expect.poll(() => f.backend.fileRooms.rooms.has(id)).toBe(false)
+  } finally { await f.close() }
+}, 15000)
+
+it('pauses a shared file while all clients acknowledge an external reload', async () => {
+  const f = await fixture()
+  try {
+    const doc = createImportedDocument(file)
+    const { id, secret, name } = await (await f.publish(Buffer.from(Y.encodeStateAsUpdate(doc)).toString('base64'))).json()
+    const owner = f.connect(name, { file: true, token: secret, doc })
+    const guest = f.connect(name, { file: true })
+    await expect.poll(() => owner.provider.synced && guest.provider.synced).toBe(true)
+    owner.provider.sendStateless(JSON.stringify({ type: 'file-saved', revision: f.backend.fileRooms.rooms.get(id)!.revision }))
+    await expect.poll(() => f.backend.fileRooms.rooms.get(id)?.active).toBe(true)
+
+    const operation = uuid()
+    owner.provider.sendStateless(JSON.stringify({ type: 'file-reload-prepare', operation }))
+    await expect.poll(() => owner.messages.some(message => message.type === 'file-reload-prepare')).toBe(true)
+    await expect.poll(() => guest.messages.some(message => message.type === 'file-reload-prepare')).toBe(true)
+    expect(f.backend.fileRooms.rooms.get(id)?.active).toBe(false)
+    owner.provider.sendStateless(JSON.stringify({ type: 'file-reload-ready', operation }))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(owner.messages.some(message => message.type === 'file-reload-prepared')).toBe(false)
+    guest.provider.sendStateless(JSON.stringify({ type: 'file-reload-ready', operation }))
+    await expect.poll(() => owner.messages.some(message => message.type === 'file-reload-prepared')).toBe(true)
+
+    new TreeCommands(doc).setText(ROOT_ID, 'Изменено во внешнем файле')
+    await expect.poll(() => owner.provider.hasUnsyncedChanges).toBe(false)
+    owner.provider.sendStateless(JSON.stringify({ type: 'file-reload-apply', operation, fileName: 'external.deco' }))
+    await expect.poll(() => guest.messages.some(message => message.type === 'file-reloaded')).toBe(true)
+    expect(f.backend.fileRooms.rooms.get(id)?.active).toBe(true)
+    expect(f.backend.fileRooms.rooms.get(id)?.saved).toContain('Изменено во внешнем файле')
+    expect(projectTree(guest.provider.document).nodes.get(ROOT_ID)?.text).toBe('Изменено во внешнем файле')
   } finally { await f.close() }
 }, 15000)
 

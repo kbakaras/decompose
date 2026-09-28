@@ -99,7 +99,17 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   useEffect(() => { if (shareLink) shareDialog.current?.showModal(); else shareDialog.current?.close() }, [shareLink])
   const [parameters, setParameters] = useState<{ id: string; draft: string; error: string } | null>(null)
   const parametersDialog = useRef<HTMLDialogElement>(null)
+  const fileConflictDialog = useRef<HTMLDialogElement>(null)
+  const [fileConflictOpen, setFileConflictOpen] = useState(false)
   useEffect(() => { if (parameters) parametersDialog.current?.showModal(); else parametersDialog.current?.close() }, [parameters])
+  useEffect(() => {
+    if (session.file?.conflict) setFileConflictOpen(true)
+    else setFileConflictOpen(false)
+  }, [session.file?.conflict])
+  useEffect(() => {
+    if (fileConflictOpen) fileConflictDialog.current?.showModal()
+    else fileConflictDialog.current?.close()
+  }, [fileConflictOpen])
   const actionsContainer = useRef<HTMLDivElement>(null)
   const [heights, setHeights] = useState(new Map<string, number>())
   const [positions, setPositions] = useState(new Map<string, { x: number; y: number }>())
@@ -330,7 +340,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   }, [session, commit, updateDrag])
   const saveFile = useCallback(() => {
     if (!commit()) return
-    if (session.file) void session.file.retry().catch(error => setNotice(String(error)))
+    if (session.file?.conflict) setFileConflictOpen(true)
+    else if (session.file) void session.file.retry().catch(error => setNotice(String(error)))
     else { try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } }
   }, [commit, session, documentTitle])
   const downloadCopy = () => {
@@ -871,6 +882,25 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         <button autoFocus onClick={continueTextEdit}>Продолжить редактирование</button>
       </div>
     </dialog>
+    <dialog ref={fileConflictDialog} className="diagrams-dialog confirmation-dialog file-conflict-dialog"
+      aria-labelledby="file-conflict-heading" onCancel={event => { event.preventDefault(); setFileConflictOpen(false) }}>
+      <h2 id="file-conflict-heading">Файл изменён на диске</h2>
+      <p>{session.file?.conflict?.message}</p>
+      <p>Автосохранение и редактирование приостановлены, пока конфликт не разрешён.</p>
+      <div className="dialog-actions">
+        <button type="button" onClick={downloadCopy}>Скачать локальную копию</button>
+        <button type="button" disabled={!session.file?.conflict?.external} onClick={() => {
+          void session.file?.acceptExternal().then(() => { setFileConflictOpen(false); focusCanvas() })
+            .catch(error => setNotice(error instanceof Error ? error.message : String(error)))
+        }}>Принять внешний файл</button>
+        <button type="button" className="danger-button" onClick={() => {
+          void session.file?.overwriteExternal().then(() => { setFileConflictOpen(false); focusCanvas() })
+            .catch(error => setNotice(error instanceof Error ? error.message : String(error)))
+        }}>Перезаписать внешний файл</button>
+        <span className="dialog-actions-spacer" />
+        <button type="button" autoFocus onClick={() => { setFileConflictOpen(false); focusCanvas() }}>Отмена</button>
+      </div>
+    </dialog>
     <main ref={canvas} className="canvas" tabIndex={0} onKeyDown={keyDown}
       onCopy={copyToClipboard} onCut={cutToClipboard} onPaste={pasteFromClipboard} inert={switching}
       aria-label="Дерево декомпозиции" aria-describedby="keyboard-status" data-diagram-id={session.id} data-ready={String(ready && layoutReady && !switching)}>
@@ -893,10 +923,11 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       {notice && <div className="notice" role="alert"><span>{notice}</span>
         <button aria-label="Закрыть сообщение" onClick={() => { setNotice(null); focusCanvas() }}>×</button>
       </div>}
-      {(session.message || session.file?.error) && <div className="notice file-notice" role="alert">
-        <span>{session.file?.error || session.message}</span>
+      {(session.message || session.file?.error || session.file?.conflict) && <div className="notice file-notice" role="alert">
+        <span>{session.file?.conflict?.message || session.file?.error || session.message}</span>
         <button onClick={() => { try { downloadDiagram(session.doc, documentTitle) } catch (error) { setNotice(String(error)) } }}>Скачать копию</button>
-        {session.file?.error && <button onClick={saveFile}>Повторить сохранение</button>}
+        {session.file?.conflict && <button onClick={() => setFileConflictOpen(true)}>Разрешить конфликт</button>}
+        {session.file?.error && !session.file?.conflict && <button onClick={saveFile}>Повторить сохранение</button>}
         {(session.outdated || session.source === 'guest' && !session.canEdit) && <button onClick={() => { void reload() }}>Открыть актуальную схему</button>}
       </div>}
       {session.fileNotice && !session.message && !session.file?.error && <div className="notice file-notice file-info" role="status">

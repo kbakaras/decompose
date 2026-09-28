@@ -16,8 +16,8 @@ test.use({
 })
 
 const file = { format: 'decompose', version: 1, nodes: [
-  { id: 'r', text: 'Файл схемы', status: 'open', children: ['a'] },
-  { id: 'a', text: 'Сохранённая\nкарточка', status: 'done', children: [] },
+  { id: 'root', text: 'Файл схемы', status: 'open', children: ['28397096-d865-43c2-a440-e9465ab4f5f8'] },
+  { id: '28397096-d865-43c2-a440-e9465ab4f5f8', text: 'Сохранённая\nкарточка', status: 'done', children: [] },
 ], settings: { textAlign: 'center' } }
 const root = (page: Page) => page.locator('[data-cell-id="root"]')
 const ready = (page: Page) => expect(page.locator('main')).toHaveAttribute('data-ready', 'true')
@@ -45,6 +45,7 @@ test('native file imports as a new diagram and exports the active draft, formatt
   expect(exported.suggestedFilename()).toBe('Draft в файле.deco')
   const data = JSON.parse(await readFile((await exported.path())!, 'utf8'))
   expect(data.nodes.map((node: { text: string }) => node.text)).toEqual(['Draft в файле', 'Сохранённая\nкарточка'])
+  expect(data.nodes.map((node: { id: string }) => node.id)).toEqual(file.nodes.map(node => node.id))
   expect(data.settings).toEqual({ textAlign: 'center' })
   expect(data.nodes[1].status).toBe('done')
   await page.reload(); await ready(page); await expect(root(page)).toHaveAttribute('data-text', 'Draft в файле')
@@ -277,7 +278,7 @@ test('disk mode writes the original file, shares in memory, pauses guests and ne
   } finally { await guestContext.close() }
 })
 
-test('external file modification stops autosave and leaving offers a non-browser confirmation', async ({ page }) => {
+test('invalid external modification stops autosave and requires an explicit resolution', async ({ page }) => {
   await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page)
   await openDisk(page)
   await page.evaluate(async () => {
@@ -285,27 +286,53 @@ test('external file modification stops autosave and leaving offers a non-browser
     const writer = await handle.createWritable(); await writer.write('Внешнее изменение'); await writer.close()
   })
   await root(page).dblclick(); await page.getByRole('textbox').fill('Мои изменения'); await page.keyboard.press('Enter')
-  await expect(page.getByRole('alert')).toContainText('изменён другой программой')
+  const conflict = page.getByRole('dialog', { name: 'Файл изменён на диске' })
+  await expect(conflict).toBeVisible()
+  await expect(conflict).toContainText('нельзя прочитать')
+  await expect(conflict.getByRole('button', { name: 'Принять внешний файл' })).toBeDisabled()
+  await expect(conflict.getByRole('button').allTextContents()).resolves.toEqual([
+    'Скачать локальную копию', 'Принять внешний файл', 'Перезаписать внешний файл', 'Отмена',
+  ])
+  await conflict.getByRole('button', { name: 'Отмена' }).click()
+  await expect(page.getByRole('alert')).toContainText('нельзя прочитать')
   await expect(page.getByRole('alert').getByRole('button', { name: 'Скачать копию' })).toBeVisible()
+  await expect(page.getByRole('alert').getByRole('button', { name: 'Разрешить конфликт' })).toBeVisible()
   await expect(page.getByRole('alert').getByRole('button', { name: 'Закрыть сообщение' })).toHaveCount(0)
   await expect(page.locator('.file-indicator')).toContainText('Файл на диске')
   await expect(page.locator('.file-indicator')).toContainText('Не сохранено')
   await expect(page.locator('.file-indicator')).toHaveAttribute('data-state', 'error')
   expect((await page.locator('.file-notice').boundingBox())!.height).toBeLessThan(200)
   expect(await diskText(page)).toBe('Внешнее изменение')
-  await page.locator('a.brand').click()
-  const confirmation = page.getByRole('dialog', { name: 'Несохранённый файл' })
-  await expect(confirmation).toBeVisible()
-  await expect(confirmation).toHaveClass(/confirmation-dialog/)
-  await expect(confirmation.getByRole('heading', { name: 'Несохранённый файл' })).toHaveCSS('font-size', '20px')
-  await expect(confirmation.getByText(/При уходе последние изменения/)).toHaveCSS('font-size', '14px')
-  expect(await confirmation.textContent()).not.toContain(';')
-  await expect(confirmation.getByRole('button', { name: 'Уйти без сохранения' })).toHaveCSS('color', 'rgb(143, 48, 40)')
-  await expect(confirmation.getByRole('button').allTextContents()).resolves.toEqual(['Уйти без сохранения', 'Остаться'])
-  await confirmation.getByRole('button', { name: 'Остаться', exact: true }).click()
+  await page.getByRole('button', { name: 'Разрешить конфликт' }).click()
+  await conflict.getByRole('button', { name: 'Перезаписать внешний файл' }).click()
+  await expect(conflict).not.toBeVisible()
   await expect(root(page)).toHaveAttribute('data-text', 'Мои изменения')
-  await page.locator('a.brand').click(); await page.getByRole('button', { name: 'Уйти без сохранения' }).click()
-  await expect(page).not.toHaveURL(/\/file\/local\//)
+  await expect(page.locator('.file-indicator')).toContainText('Сохранено')
+  expect(JSON.parse(await diskText(page)).nodes[0].text).toBe('Мои изменения')
+})
+
+test('clean external changes are applied by stable IDs without writing them back', async ({ page }) => {
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
+  await root(page).dblclick(); await page.getByRole('textbox').fill('Сохранённая локальная правка'); await page.keyboard.press('Enter')
+  await expect.poll(async () => JSON.parse(await diskText(page)).nodes[0].text).toBe('Сохранённая локальная правка')
+  const childId = file.nodes[1].id
+  await page.locator(`[data-cell-id="${childId}"]`).click()
+  await expect(page.locator(`[data-cell-id="${childId}"]`)).toHaveAttribute('data-active', 'true')
+  await page.evaluate(async ({ childId }) => {
+    const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
+    const current = JSON.parse(await (await handle.getFile()).text())
+    current.nodes[0].text = 'Изменено внешней программой'
+    current.nodes[1].text = 'Та же карточка с тем же ID'
+    current.nodes[0].children = [childId, '678008f8-cb76-4d63-ae20-cf665d748e14']
+    current.nodes.push({ id: '678008f8-cb76-4d63-ae20-cf665d748e14', text: 'Добавлено снаружи', status: 'open', children: [] })
+    const writer = await handle.createWritable(); await writer.write(JSON.stringify(current, null, 4)); await writer.close()
+  }, { childId })
+  await expect(root(page)).toHaveAttribute('data-text', 'Изменено внешней программой', { timeout: 5000 })
+  await expect(page.locator(`[data-cell-id="${childId}"]`)).toHaveAttribute('data-text', 'Та же карточка с тем же ID')
+  await expect(page.locator(`[data-cell-id="${childId}"]`)).toHaveAttribute('data-active', 'true')
+  await expect(page.locator('[data-cell-id="678008f8-cb76-4d63-ae20-cf665d748e14"]')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Отменить действие', exact: true })).toBeDisabled()
+  expect(JSON.parse(await diskText(page)).nodes[0].text).toBe('Изменено внешней программой')
 })
 
 test('disk mode stays visible in a compact header with a long filename and on a narrow screen', async ({ page }) => {
@@ -525,6 +552,64 @@ test('sharing a local file preserves the owner editor, selection, undo and bound
     expect(errors).toEqual([])
     await expect(page).toHaveURL(ownerUrl)
     await expect(page.getByRole('alert')).toHaveCount(0)
+  } finally { await context.close() }
+})
+
+test('a clean external change updates the same shared session and clears every local history', async ({ page, browser }) => {
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
+  const ownerUrl = page.url(), invite = await shareDisk(page)
+  const context = await namedContext(browser)
+  try {
+    const guest = await context.newPage(); await guest.goto(invite); await ready(guest)
+    const child = guest.locator(`[data-cell-id="${file.nodes[1].id}"]`)
+    await child.click(); await guest.keyboard.press('Space')
+    await expect.poll(async () => JSON.parse(await diskText(page)).nodes[1].status).toBe('open')
+    await expect(page.locator('.file-save-state')).toHaveText('Сохранено')
+    await expect(guest.getByRole('button', { name: 'Отменить действие', exact: true })).toBeEnabled()
+
+    await page.evaluate(async () => {
+      const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
+      const current = JSON.parse(await (await handle.getFile()).text())
+      current.nodes[0].text = 'Обновлено снаружи для всех'
+      const writer = await handle.createWritable(); await writer.write(JSON.stringify(current)); await writer.close()
+    })
+    await expect(root(page)).toHaveAttribute('data-text', 'Обновлено снаружи для всех', { timeout: 7000 })
+    await expect(root(guest)).toHaveAttribute('data-text', 'Обновлено снаружи для всех')
+    await expect(guest.getByRole('button', { name: 'Отменить действие', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Отменить действие', exact: true })).toBeDisabled()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await expect(guest.getByRole('alert')).toHaveCount(0)
+    expect(page.url()).toBe(ownerUrl)
+    expect(guest.url()).toBe(invite)
+  } finally { await context.close() }
+})
+
+test('concurrent guest and disk changes stop the room until the owner resolves them', async ({ page, browser }) => {
+  await page.goto(await testDiagram(page)); await ready(page); await installFilePicker(page); await openDisk(page)
+  const ownerUrl = page.url(), invite = await shareDisk(page)
+  const context = await namedContext(browser)
+  try {
+    const guest = await context.newPage(); await guest.goto(invite); await ready(guest)
+    await page.evaluate(async () => {
+      const handle = await (await navigator.storage.getDirectory()).getFileHandle('diagram-test.json')
+      const current = JSON.parse(await (await handle.getFile()).text())
+      current.nodes[0].text = 'Версия внешнего файла'
+      const writer = await handle.createWritable(); await writer.write(JSON.stringify(current)); await writer.close()
+    })
+    await root(guest).dblclick(); await guest.getByRole('textbox').fill('Версия участника'); await guest.keyboard.press('Enter')
+    await expect(root(page)).toHaveAttribute('data-text', 'Версия участника')
+    const conflict = page.getByRole('dialog', { name: 'Файл изменён на диске' })
+    await expect(conflict).toBeVisible({ timeout: 5000 })
+    await expect(conflict).toContainText('изменились независимо')
+    expect(JSON.parse(await diskText(page)).nodes[0].text).toBe('Версия внешнего файла')
+    await expect(guest.getByRole('alert')).toContainText('приостановлена')
+
+    await conflict.getByRole('button', { name: 'Принять внешний файл' }).click()
+    await expect(root(page)).toHaveAttribute('data-text', 'Версия внешнего файла')
+    await expect(root(guest)).toHaveAttribute('data-text', 'Версия внешнего файла')
+    await expect(guest.getByRole('alert')).toHaveCount(0)
+    expect(page.url()).toBe(ownerUrl)
+    expect(guest.url()).toBe(invite)
   } finally { await context.close() }
 })
 

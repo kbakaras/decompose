@@ -12,7 +12,7 @@ import { acquireFile, FileBusy, FilePermission, findFileRecord, registerFile, sa
 
 export type OpenLocalFile = (handle: WritableFile, text: string, lease?: FileLease) => Promise<void>
 
-const endedFileNotice = 'Работаешь с файлом на диске. Изменения сохраняются автоматически. Совместный доступ приостановлен; ссылка сохранена. Чтобы возобновить его, выбери «Поделиться сессией» в меню файла.'
+const endedFileNotice = 'Работаешь с файлом на диске. Изменения сохраняются автоматически. Совместный доступ приостановлен. Ссылка сохранена. Чтобы возобновить его, выбери «Поделиться сессией» в меню файла.'
 const encode = (doc: Y.Doc) => btoa(Array.from(Y.encodeStateAsUpdate(doc), byte => String.fromCharCode(byte)).join(''))
 
 async function publishRoom(id: string, secret: string, doc: Y.Doc, signal?: AbortSignal): Promise<string> {
@@ -46,6 +46,15 @@ function fileSession(lease: FileLease, text: string, doc = createImportedDocumen
     session.emit()
   }, () => session.fileRevision, revision => {
     if (session.connected) session.provider?.sendStateless(JSON.stringify({ type: 'file-saved', revision, fileName: handle.name }))
+  })
+  session.file.configure({
+    prepare: () => session.prepare?.() ?? true,
+    clearHistory: () => session.history.clear(),
+    conflictChanged: conflict => {
+      session.blocked = !!conflict
+      if (conflict && session.connected) session.provider?.sendStateless(JSON.stringify({ type: 'file-error' }))
+      session.emit()
+    },
   })
   return session
 }
@@ -133,6 +142,21 @@ function connectRoom(session: Session, id: string, secret?: string, name = id) {
   socketUrl.pathname = appUrl('file-collaboration').pathname
   let connectedOnce = false, syncedOnce = false, roomActive = false, rejected = false
   let hasLocalEdits = false
+  let reloadOperation = ''
+  let reloadPrepared = false
+  let reloadResolve: (() => void) | undefined
+  let reloadReject: ((error: Error) => void) | undefined
+  let reloadTimer: ReturnType<typeof setTimeout> | undefined
+  const finishReloadWait = (error?: Error) => {
+    clearTimeout(reloadTimer)
+    const resolve = reloadResolve, reject = reloadReject
+    reloadResolve = undefined; reloadReject = undefined; reloadTimer = undefined
+    if (error) reject?.(error); else resolve?.()
+  }
+  const waitForReload = () => new Promise<void>((resolve, reject) => {
+    reloadResolve = resolve; reloadReject = reject
+    reloadTimer = setTimeout(() => finishReloadWait(new Error('Сервер не подтвердил обновление файла за 15 секунд.')), 15000)
+  })
   session.blocked = session.source === 'guest'
   const provider = new HocuspocusProvider({
     url: socketUrl.href, name, document: session.doc, token: secret ?? '',
@@ -162,7 +186,7 @@ function connectRoom(session: Session, id: string, secret?: string, name = id) {
         session.fileRevision = message.revision
         if (typeof message.fileName === 'string') session.fileName = message.fileName
         if (secret) {
-          if (!message.active && syncedOnce && !session.file?.error) void session.file?.save(true).catch(() => {})
+          if (!message.active && !message.reloading && syncedOnce && !session.file?.error) void session.file?.save(true).catch(() => {})
         } else {
           if (!message.active) session.prepare?.()
           if (!roomActive && message.active && hasLocalEdits && provider.hasUnsyncedChanges) rejected = true
@@ -170,6 +194,30 @@ function connectRoom(session: Session, id: string, secret?: string, name = id) {
           session.message = session.blocked ? 'Запись в файл приостановлена. Доступны просмотр и скачивание копии.' : ''
           roomActive = !!message.active
         }
+      } else if (message.type === 'file-reload-prepare' && typeof message.operation === 'string') {
+        reloadOperation = message.operation
+        const prepared = session.prepare?.() ?? true
+        session.blocked = true
+        session.message = secret ? '' : 'Владелец проверяет изменение файла на диске. Редактирование временно приостановлено.'
+        session.emit()
+        void (prepared ? session.synced() : Promise.reject(new Error('Открытый черновик не подготовлен')))
+          .then(() => provider.sendStateless(JSON.stringify({ type: 'file-reload-ready', operation: message.operation })))
+          .catch(() => provider.sendStateless(JSON.stringify({ type: 'file-reload-failed', operation: message.operation })))
+      } else if (message.type === 'file-reload-prepared' && secret && message.operation === reloadOperation) {
+        reloadPrepared = true
+        finishReloadWait()
+      } else if (message.type === 'file-reloaded' && message.operation === reloadOperation) {
+        session.history.clear()
+        session.blocked = false
+        session.message = ''
+        reloadOperation = ''; reloadPrepared = false
+        finishReloadWait()
+      } else if (message.type === 'file-reload-cancelled'
+        && (!reloadOperation || message.operation === reloadOperation)) {
+        reloadOperation = ''; reloadPrepared = false
+        session.blocked = session.source === 'guest' ? !roomActive : false
+        session.message = session.blocked ? 'Запись в файл приостановлена. Доступны просмотр и скачивание копии.' : ''
+        finishReloadWait(new Error(typeof message.message === 'string' ? message.message : 'Обновление файла отменено.'))
       } else if (message.type === 'file-ended') {
         if (!secret) { session.prepare?.(); session.ended = true }
         session.roomUrl = ''
@@ -194,7 +242,29 @@ function connectRoom(session: Session, id: string, secret?: string, name = id) {
     provider.on('destroy', () => session.doc.off('update', localUpdate))
   }
   session.attach(provider)
-  if (secret) session.roomClose = () => provider.sendStateless(JSON.stringify({ type: 'file-close' }))
+  if (secret) {
+    session.roomClose = () => provider.sendStateless(JSON.stringify({ type: 'file-close' }))
+    session.file?.configure({
+      beforeExternal: async () => {
+        if (session.ended || !session.roomUrl) return true
+        if (!session.connected) throw new Error('Нет связи с файловой сессией. Внешнее изменение пока не применено.')
+        if (reloadOperation && reloadPrepared) return true
+        reloadOperation = createUuid()
+        reloadPrepared = false
+        const waiting = waitForReload()
+        provider.sendStateless(JSON.stringify({ type: 'file-reload-prepare', operation: reloadOperation }))
+        await waiting
+        return true
+      },
+      appliedExternal: async () => {
+        if (!reloadOperation) return
+        await session.synced()
+        const waiting = waitForReload()
+        provider.sendStateless(JSON.stringify({ type: 'file-reload-apply', operation: reloadOperation, fileName: session.file?.handle.name }))
+        await waiting
+      },
+    })
+  }
 }
 
 export async function shareFileSession(session: Session) {

@@ -10,7 +10,9 @@ export function createImportedDocument(value: unknown, defaultTextAlign?: TextAl
   const tree = validateImport(native ?? value, native ? Infinity : undefined)
   const doc = new Y.Doc()
   const { meta, nodes, orders } = getStructures(doc)
-  const ids = new Map(tree.nodes.map(node => [node.id, node.id === tree.rootId ? ROOT_ID : createUuid()]))
+  const ids = new Map(tree.nodes.map(node => [node.id,
+    native ? node.id : node.id === tree.rootId ? ROOT_ID : createUuid(),
+  ]))
   const placements = new Map<string, Placement>()
   for (const node of tree.nodes) {
     for (const child of node.children) placements.set(child, { parentId: ids.get(node.id)!, placementId: createUuid() })
