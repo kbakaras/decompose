@@ -340,6 +340,61 @@ test('only the active card can be reordered; dragging an inactive card pans with
   expect(await viewport.getAttribute('style')).toBe(beforeDropViewport)
 })
 
+test('one insertion target spans a large vertical gap between siblings', async ({ page }) => {
+  await open(page)
+  await cell(page, 'root').click()
+  const upper = await create(page, 'Tab', 'Верхняя карточка')
+  await create(page, 'Tab', 'Верхняя ветвь')
+  await create(page, 'Tab', 'Верхний лист 1')
+  await create(page, 'Enter', 'Верхний лист 2')
+  await create(page, 'Enter', 'Верхний лист 3')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  const lower = await create(page, 'Tab', 'Нижняя карточка')
+  await create(page, 'Tab', 'Нижний лист 1')
+  await create(page, 'Enter', 'Нижний лист 2')
+  await create(page, 'Enter', 'Нижний лист 3')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  const moving = await create(page, 'Tab', 'Переносимая карточка')
+  await page.getByRole('button', { name: 'Вся схема' }).click()
+
+  const source = cell(page, moving)
+  await source.click()
+  await source.click({ trial: true })
+  await cell(page, upper).click({ trial: true })
+  await cell(page, lower).click({ trial: true })
+  const from = (await source.boundingBox())!
+  const above = (await cell(page, upper).boundingBox())!
+  const below = (await cell(page, lower).boundingBox())!
+  const gapTop = above.y + above.height
+  const gapBottom = below.y
+  const gapMiddle = (gapTop + gapBottom) / 2
+  expect(gapBottom - gapTop).toBeGreaterThan(36)
+
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 + 8, { steps: 3 })
+  const indicator = page.getByTestId('drop-indicator')
+  const centers: number[] = []
+  for (const y of [gapTop + 2, gapMiddle, gapBottom - 2]) {
+    await page.mouse.move(above.x + above.width / 2, y, { steps: 8 })
+    await expect(indicator).toBeVisible()
+    await expect(cell(page, upper)).toHaveClass(/cell-drop-after/)
+    const bounds = (await indicator.boundingBox())!
+    centers.push(bounds.y + bounds.height / 2)
+  }
+  expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(1)
+  expect(Math.abs(centers[0] - gapMiddle)).toBeLessThan(2)
+
+  await page.mouse.up()
+  await expect(cell(page, moving)).toHaveAttribute('data-parent-id', 'root')
+  await expect(cell(page, upper)).toHaveAttribute('data-order', '0')
+  await expect(cell(page, moving)).toHaveAttribute('data-order', '1')
+  await expect(cell(page, lower)).toHaveAttribute('data-order', '2')
+})
+
 test('mouse reorder commits on drop, syncs, preserves children and supports cancellation', async ({ browser }) => {
   const leftContext = await namedContext(browser)
   const rightContext = await namedContext(browser)

@@ -605,10 +605,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }] : []
   })
   const siblingDrop = drag?.target?.kind === 'sibling' ? drag.target : null
-  const dropAnchor = siblingDrop ? positions.get(siblingDrop.anchorId) : undefined
-  const dropY = dropAnchor && siblingDrop
-    ? dropAnchor.y + (siblingDrop.side === 'before' ? -14 : (heights.get(siblingDrop.anchorId) ?? NODE_MIN_HEIGHT) + 12)
-    : 0
+  const dropIndicator = siblingDrop?.indicator
 
   const nativeClipboardTarget = (target: EventTarget | null) => (
     target instanceof HTMLElement && !!target.closest('button, a, input, textarea, select, [contenteditable="true"]')
@@ -917,8 +914,9 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
         onNodeDoubleClick={(_event, node) => startEdit(node.id)}
         onPaneClick={() => { if (commit()) focusCanvas() }}>
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#d9d5c9" />
-        {dropAnchor && <ViewportPortal><div className="drop-indicator" data-testid="drop-indicator"
-          style={{ transform: `translate(${dropAnchor.x - 8}px, ${dropY}px)`, width: NODE_WIDTH + 16 }} /></ViewportPortal>}
+        {dropIndicator && <ViewportPortal><div className="drop-indicator" data-testid="drop-indicator"
+          style={{ transform: `translate(${dropIndicator.x}px, ${dropIndicator.y}px) translateY(-50%)`,
+            width: dropIndicator.width }} /></ViewportPortal>}
       </ReactFlow> : <div className="loading" role="status">{session.waitingForOwner ? 'Ожидаем владельца файла. Схема откроется автоматически, когда он откроет файл.' : connected ? 'Открываем документ…' : 'Для первого открытия документа нужно соединение с сервером.'}</div>}
       {notice && <div className="notice" role="alert"><span>{notice}</span>
         <button aria-label="Закрыть сообщение" onClick={() => { setNotice(null); focusCanvas() }}>×</button>

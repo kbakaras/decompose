@@ -1,4 +1,4 @@
-import { ROOT_ID, type TreeProjection } from '../domain'
+import type { TreeProjection } from '../domain'
 import { NODE_WIDTH } from './layout'
 
 export interface Point { x: number; y: number }
@@ -21,6 +21,7 @@ export type DropTarget = {
   index: number
   anchorId: string
   side: 'before' | 'after'
+  indicator: { x: number; y: number; width: number }
 } | {
   kind: 'child'
   parentId: string
@@ -32,6 +33,18 @@ export interface DragPreview {
   position: Point
   target: DropTarget | null
   phase: 'dragging' | 'settling'
+}
+
+const DROP_MARGIN = 18
+const INDICATOR_INSET = 8
+const OUTER_INDICATOR_OFFSET = 12
+type SiblingTarget = Extract<DropTarget, { kind: 'sibling' }>
+interface SiblingSlot {
+  target: SiblingTarget
+  left: number
+  right: number
+  top: number
+  bottom: number
 }
 
 export function beginTreeDrag(
@@ -80,28 +93,71 @@ export function treeDropTarget(drag: TreeDrag, pointer: Point): DropTarget | nul
     return isNoop(source, nodes, target) ? null : target
   }
 
-  const line = drag.nodes
-    .filter(node => node.id !== drag.id && node.id !== ROOT_ID && node.parentId
-      && validParent(nodes, drag.id, node.parentId)
-      && pointer.x >= node.position.x - 18 && pointer.x <= node.position.x + NODE_WIDTH + 18)
-    .flatMap(node => ([
-      { node, side: 'before' as const, distance: Math.abs(pointer.y - node.position.y) },
-      { node, side: 'after' as const, distance: Math.abs(pointer.y - node.position.y - node.height) },
-    ]))
-    .filter(candidate => candidate.distance <= 18)
-    .sort((left, right) => left.distance - right.distance)[0]
-  if (!line || !line.node.parentId) return null
-  const siblings = nodes.get(line.node.parentId)?.children.filter(id => id !== drag.id) ?? []
-  const anchorIndex = siblings.indexOf(line.node.id)
-  if (anchorIndex < 0) return null
-  const target: DropTarget = {
-    kind: 'sibling',
-    parentId: line.node.parentId,
-    index: anchorIndex + (line.side === 'after' ? 1 : 0),
-    anchorId: line.node.id,
-    side: line.side,
+  const slot = siblingSlots(drag, nodes)
+    .filter(candidate => pointer.x >= candidate.left && pointer.x <= candidate.right
+      && pointer.y >= candidate.top && pointer.y <= candidate.bottom
+      && !isNoop(source, nodes, candidate.target))
+    .sort((left, right) => (
+      Math.abs(pointer.y - left.target.indicator.y) - Math.abs(pointer.y - right.target.indicator.y)
+      || left.target.parentId.localeCompare(right.target.parentId)
+      || left.target.index - right.target.index
+    ))[0]
+  return slot?.target ?? null
+}
+
+function siblingSlots(drag: TreeDrag, nodes: ReadonlyMap<string, DragNode>): SiblingSlot[] {
+  const slots: SiblingSlot[] = []
+  for (const parent of drag.nodes) {
+    if (!validParent(nodes, drag.id, parent.id)) continue
+    const siblings = parent.children
+      .filter(id => id !== drag.id)
+      .map(id => nodes.get(id))
+      .filter(node => node !== undefined)
+    const first = siblings[0]
+    const last = siblings.at(-1)
+    if (!first || !last) continue
+
+    slots.push({
+      target: siblingTarget(parent.id, 0, first, 'before', first.position.y - OUTER_INDICATOR_OFFSET),
+      left: first.position.x - DROP_MARGIN,
+      right: first.position.x + NODE_WIDTH + DROP_MARGIN,
+      top: first.position.y - DROP_MARGIN,
+      bottom: first.position.y,
+    })
+    for (let index = 1; index < siblings.length; index++) {
+      const upper = siblings[index - 1]!
+      const lower = siblings[index]!
+      const top = upper.position.y + upper.height
+      const bottom = lower.position.y
+      const left = Math.max(upper.position.x, lower.position.x) - DROP_MARGIN
+      const right = Math.min(upper.position.x + NODE_WIDTH, lower.position.x + NODE_WIDTH) + DROP_MARGIN
+      if (top > bottom || left > right) continue
+      slots.push({
+        target: siblingTarget(parent.id, index, upper, 'after', (top + bottom) / 2,
+          (upper.position.x + lower.position.x) / 2),
+        left, right, top, bottom,
+      })
+    }
+    const lastBottom = last.position.y + last.height
+    slots.push({
+      target: siblingTarget(parent.id, siblings.length, last, 'after', lastBottom + OUTER_INDICATOR_OFFSET),
+      left: last.position.x - DROP_MARGIN,
+      right: last.position.x + NODE_WIDTH + DROP_MARGIN,
+      top: lastBottom,
+      bottom: lastBottom + DROP_MARGIN,
+    })
   }
-  return isNoop(source, nodes, target) ? null : target
+  return slots
+}
+
+function siblingTarget(
+  parentId: string, index: number, anchor: DragNode, side: 'before' | 'after', y: number,
+  x = anchor.position.x,
+): SiblingTarget {
+  return {
+    kind: 'sibling', parentId, index, anchorId: anchor.id, side,
+    indicator: { x: x - INDICATOR_INSET, y, width: NODE_WIDTH + INDICATOR_INSET * 2 },
+  }
 }
 
 function sameChildren(

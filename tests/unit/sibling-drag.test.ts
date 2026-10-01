@@ -36,10 +36,13 @@ it('finds child and sibling targets from the pointer without changing the docume
   })
   expect(treeDropTarget(drag, { x: 490, y: -10 })).toEqual({
     kind: 'sibling', parentId: ROOT_ID, index: 0, anchorId: ids[0], side: 'before',
+    indicator: { x: 342, y: -12, width: 296 },
   })
-  expect(treeDropTarget(drag, { x: 490, y: 110 })).toEqual({
+  const between = {
     kind: 'sibling', parentId: ROOT_ID, index: 1, anchorId: ids[0], side: 'after',
-  })
+    indicator: { x: 342, y: 152, width: 296 },
+  }
+  for (const y of [105, 110, 150, 199]) expect(treeDropTarget(drag, { x: 490, y })).toEqual(between)
   expect(treeDropTarget(drag, { x: 490, y: 440 })).toBeNull()
   expect(treeDropTarget(drag, { x: 900, y: -10 })).toBeNull()
   expect(updates).toBe(0)
