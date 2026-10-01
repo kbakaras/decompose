@@ -44,6 +44,36 @@ test('keyboard decomposition, atomic drafts, cancel and status', async ({ page }
   await expect(cell(page, 'Вторая деталь')).toHaveCount(0)
 })
 
+test('typing replaces the active card text through a cancellable draft', async ({ page }) => {
+  await open(page)
+  await child(page, 'Исходный текст')
+  const id = await cell(page, 'Исходный текст').getAttribute('data-cell-id')
+  const target = page.locator(`[data-cell-id="${id}"]`)
+
+  await page.keyboard.press('n')
+  const editor = page.getByRole('textbox', { name: 'Текст клеточки' })
+  await expect(editor).toBeFocused()
+  await expect(editor).toHaveValue('n')
+  await expect(target).toHaveAttribute('data-text', 'Исходный текст')
+
+  await editor.fill('Отменённая замена')
+  await page.keyboard.press('Escape')
+  await expect(editor).toHaveCount(0)
+  await expect(target).toHaveAttribute('data-text', 'Исходный текст')
+
+  await page.keyboard.press('x')
+  await expect(editor).toHaveValue('x')
+  await editor.fill('Новый текст')
+  await page.keyboard.press('Enter')
+  await expect(target).toHaveAttribute('data-text', 'Новый текст')
+
+  await page.keyboard.press('Control+z')
+  await expect(target).toHaveAttribute('data-text', 'Исходный текст')
+  await page.keyboard.press('Space')
+  await expect(target).toHaveAttribute('data-status', 'done')
+  await expect(editor).toHaveCount(0)
+})
+
 test('keyboard focus recovers after switching browser tabs while editing', async ({ page, context }) => {
   await open(page)
   await child(page, 'Возврат к клавиатуре')

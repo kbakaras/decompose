@@ -377,7 +377,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     window.addEventListener('keydown', save, true)
     return () => window.removeEventListener('keydown', save, true)
   }, [saveFile])
-  const startEdit = useCallback((id: string, isNew = false) => withIdentity(() => {
+  const startEdit = useCallback((id: string, isNew = false, initialDraft?: string) => withIdentity(() => {
     const lockedBy = session.participants().find(person => person.clientId !== session.doc.clientID && person.editingNode === id)
     if (lockedBy) { setNotice(`${lockedBy.name} сейчас редактирует эту клеточку.`); return }
     const node = projectTree(session.doc).nodes.get(id)
@@ -385,7 +385,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     setActive(id)
     setNotice(null)
     observedTextConflict.current = null
-    updateEdit({ id, draft: node.text, baseText: node.text, isNew })
+    updateEdit({ id, draft: initialDraft ?? node.text, baseText: node.text, isNew })
     setMessage('Enter — сохранить · Shift+Enter — перенос строки · Tab — сохранить и создать дочернюю · Esc — отменить')
   }), [session, updateEdit, withIdentity])
   const openParameters = useCallback((id: string) => withIdentity(() => {
@@ -672,6 +672,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const keyDown = (event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent) => {
     const nativeEvent = 'nativeEvent' in event ? event.nativeEvent : event
     if (!ready || switching || editRef.current || nativeEvent.isComposing) return
+    if (document.querySelector('dialog[open]')) return
     if ((event.target as HTMLElement).closest('button, a, input, textarea, select')) return
     if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return }
     if (dragRef.current) {
@@ -697,6 +698,14 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       event.preventDefault()
       event.stopPropagation()
       applyHistory(event.shiftKey || event.code === 'KeyY' || key === 'y' ? 'redo' : 'undo')
+      return
+    }
+    const startsReplacement = event.key.length === 1 && event.key !== ' '
+      && !ctrl && !event.altKey
+    if (startsReplacement) {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!event.repeat) startEdit(active, false, event.key)
       return
     }
     const action = () => {
@@ -938,6 +947,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Tab / Enter', 'В навигации: child / sibling'], ['Стрелки', 'Parent, child и siblings'],
           ['Ctrl + ↑ / ↓', 'Выше / ниже среди siblings'], ['Ctrl + → / ←', 'Indent / outdent'],
           ['Shift + Tab', 'Outdent'], ['F2 / двойной клик', 'Редактировать текст'],
+          ['Печатный символ', 'Заменить текст карточки'],
           ...(session.tracker ? [['F4', 'Параметры карточки'], ['Ctrl + Enter', 'Перейти к связанной задаче']] : []),
           ['Space', 'Открыто / готово'], ['Delete', 'Удалить поддерево'],
           ['Ctrl + C / X / V', 'Копировать / вырезать / вставить поддерево'],
