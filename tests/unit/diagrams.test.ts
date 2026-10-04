@@ -6,7 +6,14 @@ import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { createBackend } from '../../src/server/app'
-import { getStructures, projectTree, readTextAlign, ROOT_ID, TreeCommands } from '../../src/domain'
+import {
+  getStructures,
+  projectTree,
+  readNodeUpdate,
+  readTextAlign,
+  ROOT_ID,
+  TreeCommands,
+} from '../../src/domain'
 import { isDiagramId, type DiagramSummary } from '../../src/shared/diagrams'
 
 it('creates isolated durable diagrams, lists live root titles and preserves independent documents across restart', async () => {
@@ -23,8 +30,15 @@ it('creates isolated durable diagrams, lists live root titles and preserves inde
       expect((await fetch(`${url}/api/diagrams`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).status).toBe(400)
     }
     expect((await fetch(`${url}/api/diagrams`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' })).status).toBe(400)
-    const created = await Promise.all([1, 2].map(async () => {
-      const response = await fetch(`${url}/api/diagrams`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '  Одинаковое название\nсхемы  ' }) })
+    const created = await Promise.all([1, 2].map(async index => {
+      const response = await fetch(`${url}/api/diagrams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '  Одинаковое название\nсхемы  ',
+          author: index === 1 ? '  Анна  ' : undefined,
+        }),
+      })
       expect(response.status).toBe(201)
       return await response.json() as DiagramSummary
     }))
@@ -33,6 +47,8 @@ it('creates isolated durable diagrams, lists live root titles and preserves inde
     expect(created[0].title).toBe('Одинаковое название схемы')
     const first = await backend.collaboration.openDirectConnection(created[0].id)
     const second = await backend.collaboration.openDirectConnection(created[1].id)
+    expect(readNodeUpdate(getStructures(first.document!).nodes.get(ROOT_ID)!)).toMatchObject({ by: 'Анна' })
+    expect(readNodeUpdate(getStructures(second.document!).nodes.get(ROOT_ID)!)).toBeNull()
     expect(readTextAlign(first.document!)).toBe('center')
     expect(readTextAlign(second.document!)).toBe('center')
     expect(projectTree(first.document!).nodes.size).toBe(1)

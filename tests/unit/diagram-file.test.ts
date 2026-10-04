@@ -1,12 +1,12 @@
 import { expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
-import { applyExternalSnapshot, createImportedDocument, getStructures, initializeDocument, projectTree, ROOT_ID, TreeCommands } from '../../src/domain'
-import { DIAGRAM_FILE_LIMIT, diagramFilename, parseDiagramFile, serializeDiagram, snapshotDiagram, validateDiagramFile } from '../../src/shared/diagram-file'
+import { applyExternalSnapshot, createImportedDocument, getStructures, initializeDocument, projectTree, readStatusRestore, ROOT_ID, TreeCommands } from '../../src/domain'
+import { DIAGRAM_FILE_LIMIT, diagramFilename, parseDiagramFile, serializeDiagram, snapshotDiagram, stampDiagramMetadata, validateDiagramFile } from '../../src/shared/diagram-file'
 import { FileAutosave, type WritableFile } from '../../src/client/diagram-file'
 
-it('round-trips only the visible tree, order, soft breaks, statuses and settings', () => {
+it('round-trips the visible tree, stable IDs, metadata and settings', () => {
   const doc = new Y.Doc(); initializeDocument(doc)
-  const commands = new TreeCommands(doc)
+  const commands = new TreeCommands(doc, undefined, () => ({ at: 1_700_000_000_000, by: 'Автор файла' }))
   const a = commands.createChild(ROOT_ID, 'Первая\nстрока'), b = commands.createChild(ROOT_ID, 'Вторая')
   commands.toggleStatus(a); commands.setTrackerLink(b, 'FILE-42'); commands.move(b, a, 0); commands.setTextAlign('center')
   commands.deleteSubtree(commands.createChild(ROOT_ID, 'СЕКРЕТ: удалено'))
@@ -18,7 +18,23 @@ it('round-trips only the visible tree, order, soft breaks, statuses and settings
   expect(shape(restored)).toEqual(shape(doc))
   expect(snapshotDiagram(restored).settings.textAlign).toBe('center')
   expect(projectTree(restored).nodes.has(a)).toBe(true)
+  expect(projectTree(restored).nodes.get(a)?.updated).toEqual({ at: 1_700_000_000_000, by: 'Автор файла' })
+  expect(readStatusRestore(getStructures(restored).nodes.get(a)!)).not.toBeNull()
   doc.destroy(); restored.destroy()
+})
+
+it('reads version 1 without invented metadata and stamps GraphML-derived trees', () => {
+  const legacy = validateDiagramFile({ format: 'decompose', version: 1,
+    nodes: [{ id: 'root', text: 'Старый файл', status: 'open', children: [] }],
+    settings: { textAlign: 'left' } })
+  expect(legacy.version).toBe(2)
+  expect(legacy.nodes[0].updated).toBeUndefined()
+  const stamped = stampDiagramMetadata(legacy, 'Импортёр', 1234,
+    () => '11111111-1111-4111-8111-111111111111')
+  expect(stamped.nodes[0]).toMatchObject({
+    updated: { at: 1234, by: 'Импортёр' },
+    contentRevision: '11111111-1111-4111-8111-111111111111',
+  })
 })
 
 it('validates version, settings, cycles, duplicates and size without the yEd node limit', () => {
@@ -29,7 +45,8 @@ it('validates version, settings, cycles, duplicates and size without the yEd nod
   expect(projectTree(imported).nodes.size).toBe(1001)
   expect(snapshotDiagram(imported).settings.textAlign).toBe('left')
   imported.destroy()
-  for (const invalid of [{ ...file, version: 2 }, { ...file, settings: {} }, { ...file, nodes: [...nodes, nodes[0]] },
+  expect(validateDiagramFile(file).version).toBe(2)
+  for (const invalid of [{ ...file, version: 3 }, { ...file, settings: {} }, { ...file, nodes: [...nodes, nodes[0]] },
     { ...file, nodes: [{ ...nodes[0], children: ['0'] }] }]) expect(() => validateDiagramFile(invalid)).toThrow()
   expect(() => parseDiagramFile('{')).toThrow('JSON')
   expect(() => parseDiagramFile(' '.repeat(DIAGRAM_FILE_LIMIT + 1))).toThrow('5 МиБ')
@@ -140,7 +157,7 @@ it('stops on concurrent disk and document changes and resolves the conflict expl
     state.text = JSON.stringify(external)
     new TreeCommands(doc).setText(ROOT_ID, 'Локальная версия')
     await writer.checkExternal()
-    expect(writer.conflict?.external).toEqual(external)
+    expect(writer.conflict?.external).toEqual(validateDiagramFile(external))
     expect(projectTree(doc).nodes.get(ROOT_ID)?.text).toBe('Локальная версия')
     await writer.acceptExternal()
     expect(projectTree(doc).nodes.get(ROOT_ID)?.text).toBe('Внешняя версия')

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, ViewportPortal, getNodesBounds, getViewportForBounds, useReactFlow, type Edge } from '@xyflow/react'
 import { DomainError, ROOT_ID, projectTree, normalizeText, readTextAlign } from '../domain'
@@ -19,6 +19,14 @@ import { StorageActions, type StorageAction } from './StorageActions'
 import { FileIndicator } from './FileIndicator'
 import { copySubtreeToSystemClipboard, readSubtreeClipboard, subtreeForClipboard, writeSubtreeClipboard } from './tree-clipboard'
 import { hasTextConflict } from './text-draft'
+import {
+  DEFAULT_RECENT_LOOKBACK_INDEX,
+  RECENT_LOOKBACK_DAYS,
+  readRecentLookbackIndex,
+  recentLookbackLabel,
+  recentThreshold,
+  saveRecentLookbackIndex,
+} from './recent-updates'
 
 const nodeTypes = { cell: Cell }
 
@@ -90,6 +98,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const [notice, setNotice] = useState<string | null>(null)
   const [help, setHelp] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [recentLookback, setRecentLookback] = useState(readRecentLookbackIndex)
+  const [currentTime, setCurrentTime] = useState(Date.now)
   const fileActions = useRef<FileActionsHandle>(null)
   const pickingFile = useRef(false)
   const [storageMode, setStorageMode] = useState<StorageAction | null>(null)
@@ -135,7 +145,15 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const others = participants.filter(person => person.name && person.clientId !== session.doc.clientID)
   const documentTitle = diagramTitle(tree.nodes.get(ROOT_ID)?.text ?? '', session.tracker?.trackerKey)
   const textAlign = readTextAlign(session.doc)
+  const recentSince = recentThreshold(recentLookback, currentTime)
+  const recencyPosition = `${recentLookback / (RECENT_LOOKBACK_DAYS.length - 1) * 100}%`
   useEffect(() => { document.title = `${trackerLabel(documentTitle, session.tracker?.trackerKey)} — дерево·дел` }, [documentTitle, session.tracker])
+  useEffect(() => {
+    if (recentLookback === DEFAULT_RECENT_LOOKBACK_INDEX) return
+    setCurrentTime(Date.now())
+    const timer = setInterval(() => setCurrentTime(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [recentLookback])
 
   useEffect(() => {
     if (!actionsOpen) return
@@ -423,7 +441,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       const focused = document.activeElement
       const focusLost = focused === document.body || focused === document.documentElement
       if (event.key !== 'F4' || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
-        || !session.tracker || !ready || switching || editRef.current || document.querySelector('dialog[open]')
+        || !ready || switching || editRef.current || document.querySelector('dialog[open]')
         || (!focusLost && !canvas.current?.contains(event.target as Node))) return
       event.preventDefault()
       event.stopPropagation()
@@ -431,7 +449,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     }
     window.addEventListener('keydown', shortcut, true)
     return () => window.removeEventListener('keydown', shortcut, true)
-  }, [active, openParameters, ready, session.tracker, switching])
+  }, [active, openParameters, ready, switching])
   const create = useCallback((kind: 'child' | 'sibling') => withIdentity(() => {
     const parent = editRef.current?.id ?? active
     if (!commit()) return
@@ -578,6 +596,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     data: {
       node, index: (tree.children.get(node.parentId ?? '') ?? []).indexOf(node.id),
       active: node.id === active, edit: edit?.id === node.id ? edit : null, textAlign,
+      recent: recentSince !== null && node.updated !== null && node.updated.at > recentSince,
       positioned: positions.has(node.id),
       dropTarget: drag?.target?.anchorId === node.id ? (drag.target.kind === 'child' ? 'child' : drag.target.side) : null,
       dragging: drag?.snapshot.id === node.id,
@@ -818,7 +837,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); create('child') }}>Дочерняя <kbd>Tab</kbd></button>
           <button disabled={!ready || !session.canEdit || active === ROOT_ID} onClick={() => { setActionsOpen(false); create('sibling') }}>Рядом <kbd>Enter</kbd></button>
           <button disabled={!ready || !session.canEdit} onClick={() => { setActionsOpen(false); startEdit(active) }}>Редактировать <kbd>F2</kbd></button>
-          {session.tracker && <button disabled={!ready || !session.canEdit} onClick={() => openParameters(active)}>Параметры <kbd>F4</kbd></button>}
+          <button disabled={!ready || !session.canEdit} onClick={() => openParameters(active)}>Параметры <kbd>F4</kbd></button>
           <button disabled={!ready || !session.canEdit} onClick={() => {
             setActionsOpen(false)
             if (commit()) change(() => session.commands.toggleStatus(active))
@@ -832,6 +851,22 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
               setActionsOpen(false)
               if (commit()) change(() => session.commands.setTextAlign(next))
             }} />Текст карточек по центру</label>
+            <div className="recency-setting" style={{ '--recency-position': recencyPosition } as CSSProperties}>
+              <span className="recency-label">{recentLookbackLabel(recentLookback)}</span>
+              <div className="recency-scale">
+                <i className="recency-band recency-band-done" aria-hidden="true" />
+                <input type="range" min={0} max={RECENT_LOOKBACK_DAYS.length - 1} step={1}
+                  value={recentLookback} aria-label="Давность выделяемых изменений"
+                  aria-valuetext={recentLookbackLabel(recentLookback)} onChange={event => {
+                    const value = Number(event.target.value)
+                    setRecentLookback(value)
+                    saveRecentLookbackIndex(value)
+                    setCurrentTime(Date.now())
+                  }} />
+                <i className="recency-band recency-band-open" aria-hidden="true" />
+              </div>
+              <span className="recency-endpoints" aria-hidden="true"><span>30 дней</span><span>сейчас</span></span>
+            </div>
           </fieldset>
         </div>}
       </div>
@@ -853,14 +888,25 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
       onCancel={event => { event.preventDefault(); closeParameters() }}>
       <form onSubmit={event => { event.preventDefault(); saveParameters() }}>
         <h2 id="card-parameters-heading">Параметры карточки</h2>
-        <label htmlFor="card-tracker-link">Ссылка на задачу</label>
-        <input id="card-tracker-link" aria-describedby={parameters?.error ? 'card-parameters-error' : undefined}
-          autoFocus autoComplete="off" spellCheck={false} value={parameters?.draft ?? ''}
-          onChange={event => setParameters(current => current && { ...current, draft: event.target.value, error: '' })}
-          placeholder="MC-99636" />
-        {parameters?.error && <p id="card-parameters-error" className="parameter-error" role="alert">{parameters.error}</p>}
+        {parameters && (() => {
+          const updated = tree.nodes.get(parameters.id)?.updated
+          return <dl className="card-metadata">
+            <div><dt>Изменена</dt><dd>{updated
+              ? <time dateTime={new Date(updated.at).toISOString()}>{new Date(updated.at).toLocaleString('ru-RU', { dateStyle: 'long', timeStyle: 'short' })}</time>
+              : 'Нет данных'}</dd></div>
+            <div><dt>Автор изменения</dt><dd>{updated?.by ?? 'Нет данных'}</dd></div>
+          </dl>
+        })()}
+        {session.tracker && <>
+          <label htmlFor="card-tracker-link">Ссылка на задачу</label>
+          <input id="card-tracker-link" aria-describedby={parameters?.error ? 'card-parameters-error' : undefined}
+            autoFocus autoComplete="off" spellCheck={false} value={parameters?.draft ?? ''}
+            onChange={event => setParameters(current => current && { ...current, draft: event.target.value, error: '' })}
+            placeholder="MC-99636" />
+          {parameters?.error && <p id="card-parameters-error" className="parameter-error" role="alert">{parameters.error}</p>}
+        </>}
         <div className="dialog-actions">
-          {parameters && tree.nodes.get(parameters.id)?.targetTrackerKey && <button type="button" className="delete-button" onClick={() => {
+          {session.tracker && parameters && tree.nodes.get(parameters.id)?.targetTrackerKey && <button type="button" className="delete-button" onClick={() => {
             if (run(() => session.commands.setTrackerLink(parameters.id, null))) {
               setParameters(null)
               setMessage('Ссылка карточки удалена.')
@@ -868,8 +914,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
             }
           }}>Удалить ссылку</button>}
           <span className="dialog-actions-spacer" />
-          <button type="submit">Сохранить</button>
-          <button type="button" onClick={closeParameters}>Отмена</button>
+          {session.tracker && <button type="submit">Сохранить</button>}
+          <button type="button" autoFocus={!session.tracker} onClick={closeParameters}>{session.tracker ? 'Отмена' : 'Закрыть'}</button>
         </div>
       </form>
     </dialog>
@@ -948,7 +994,8 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
           ['Ctrl + ↑ / ↓', 'Выше / ниже среди siblings'], ['Ctrl + → / ←', 'Indent / outdent'],
           ['Shift + Tab', 'Outdent'], ['F2 / двойной клик', 'Редактировать текст'],
           ['Печатный символ', 'Заменить текст карточки'],
-          ...(session.tracker ? [['F4', 'Параметры карточки'], ['Ctrl + Enter', 'Перейти к связанной задаче']] : []),
+          ['F4', 'Параметры карточки'],
+          ...(session.tracker ? [['Ctrl + Enter', 'Перейти к связанной задаче']] : []),
           ['Space', 'Открыто / готово'], ['Delete', 'Удалить поддерево'],
           ['Ctrl + C / X / V', 'Копировать / вырезать / вставить поддерево'],
           ['Enter / Ctrl + Enter', 'В редакторе: сохранить'], ['Esc в редакторе', 'Отменить draft'],

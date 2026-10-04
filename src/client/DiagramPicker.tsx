@@ -8,6 +8,7 @@ import { CatalogList, type CatalogListHandle } from './CatalogList'
 import { catalogSearchKeyDown, preventRepeatedEnter } from './catalog-search'
 import { appUrl } from './app-url'
 import { knownDeletion } from './deleted-diagrams'
+import { browserIdentity } from './identity'
 
 const catalogKey = 'decompose:diagrams:v1'
 type CatalogSection = 'diagrams' | 'tracker' | 'files'
@@ -139,7 +140,8 @@ export function DiagramPicker({ id, title = '', tracker, connected, navigate, re
     try {
       if (!await requestIdentity()) { setCreating(false); return }
       const response = await fetch(appUrl('api/diagrams'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: name.trim() }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: name.trim(), author: browserIdentity().name }),
       })
       if (!response.ok) throw new Error('Не удалось создать схему. Проверь соединение и попробуй ещё раз.')
       const created: DiagramSummary = await response.json()

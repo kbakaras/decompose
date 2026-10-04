@@ -1,6 +1,7 @@
 import { isTrackerSummary, trackerSearch, type TrackerSummary } from '../shared/tracker'
 import { appUrl } from './app-url'
 import { clearDeletedContent, knownDeletion, rememberDeletion } from './deleted-diagrams'
+import { browserIdentity } from './identity'
 
 const catalogKey = 'decompose:tracker:v1'
 const memory = new Map<string, TrackerSummary>()
@@ -59,7 +60,9 @@ export async function resolveTracker(key: string, signal: AbortSignal, requestId
     if (!await requestIdentity()) throw new TrackerCreationCancelled()
     signal.throwIfAborted()
     response = await fetch(appUrl(`api/tracker/${encodeURIComponent(key)}`), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recreateDeletedId }), signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recreateDeletedId, author: browserIdentity().name }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
     }).catch(() => {
       throw new Error('Не удалось завершить создание. Повтори открытие ссылки: если схема уже сохранена, откроется она же.')
     })

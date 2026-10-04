@@ -19,7 +19,8 @@ export class DocumentHistory {
       // При конфликте восстановление Y.Map может быть пропущено: не даём
       // следующему удалению оставить узел без text/status/placement.
       deleteFilter: item => item.parent === deletions || item.parent === settings
-        || item.parentSub === null || item.parentSub === 'targetTrackerKey',
+        || item.parentSub === null
+        || ['targetTrackerKey', 'updated', 'contentRevision', 'statusRestore'].includes(item.parentSub ?? ''),
     })
     this.manager.on('stack-item-added', ({ stackItem, origin }) => {
       if (origin instanceof CommandOrigin) stackItem.meta.set(COMMAND, origin)

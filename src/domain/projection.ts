@@ -1,8 +1,9 @@
-import type { NodeId, NodeStatus, Placement } from './schema'
+import type { NodeId, NodeStatus, NodeUpdate, Placement } from './schema'
 import {
   ROOT_ID,
   getStructures,
   isDeleted,
+  readNodeUpdate,
   readPlacement,
   readStatus,
   readText,
@@ -15,6 +16,7 @@ export interface ProjectedNode {
   text: string
   status: NodeStatus
   targetTrackerKey: string | null
+  updated: NodeUpdate | null
   parentId: NodeId | null
   placementId: string | null
   recovered: boolean
@@ -31,6 +33,7 @@ interface CandidateNode {
   text: string
   status: NodeStatus
   targetTrackerKey: string | null
+  updated: NodeUpdate | null
   placement: Placement | null
 }
 
@@ -46,6 +49,7 @@ export function projectTree(doc: Y.Doc): TreeProjection {
       text: readText(node),
       status: readStatus(node),
       targetTrackerKey: readTrackerLink(node),
+      updated: readNodeUpdate(node),
       placement: id === ROOT_ID ? null : readPlacement(node),
     })
   })
@@ -56,6 +60,7 @@ export function projectTree(doc: Y.Doc): TreeProjection {
       text: 'Новая декомпозиция',
       status: 'open',
       targetTrackerKey: null,
+      updated: null,
       placement: null,
     })
   }
@@ -123,6 +128,7 @@ export function projectTree(doc: Y.Doc): TreeProjection {
       text: node.text,
       status: node.status,
       targetTrackerKey: node.targetTrackerKey,
+      updated: node.updated,
       parentId: id === ROOT_ID ? null : (parents.get(id) ?? ROOT_ID),
       placementId: node.placement?.placementId ?? null,
       recovered: recovered.has(id),

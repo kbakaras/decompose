@@ -146,7 +146,7 @@ export class TrackerStorage extends SQLite {
     return { items: rows.slice(0, TRACKER_PAGE_SIZE), nextOffset: rows.length > TRACKER_PAGE_SIZE ? offset + TRACKER_PAGE_SIZE : null }
   }
 
-  ensureTracker(key: string, recreateDeletedId?: string): { item: TrackerSummary; created: boolean } {
+  ensureTracker(key: string, recreateDeletedId?: string, author?: string | null): { item: TrackerSummary; created: boolean } {
     return this.db!.transaction(() => {
       const existing = this.findTracker(key)
       if (existing) return { item: existing, created: false }
@@ -156,7 +156,10 @@ export class TrackerStorage extends SQLite {
       const id = createUuid()
       const updatedAt = Date.now()
       try {
-        initializeDocument(doc, 'center')
+        initializeDocument(doc, 'center', author ? {
+          updated: { at: updatedAt, by: author },
+          contentRevision: createUuid(),
+        } : {})
         getStructures(doc).nodes.get(ROOT_ID)!.set('text', key)
         this.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
         this.db!.prepare('INSERT INTO tracker_diagrams (tracker_key, document_id, title, search_text, updated_at) VALUES (?, ?, ?, ?, ?)')

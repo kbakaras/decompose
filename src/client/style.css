@@ -119,11 +119,19 @@ button:focus-visible, a:focus-visible { outline: 2px solid #ad552b; outline-offs
 .icon-button { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; font-size: 19px; }
 .icon-button:hover:not(:disabled), .icon-button[aria-expanded="true"] { background: #e8e9df; }
 .actions { position: relative; }
-.actions-panel { position: absolute; top: 39px; right: 0; width: 240px; max-height: calc(100dvh - 64px); overflow-y: auto; padding: 6px; background: #fffefa; border: 1px solid #dddccf; border-radius: 8px; box-shadow: 0 10px 30px #37402720; }
+.actions-panel { position: absolute; top: 39px; right: 0; width: 270px; max-height: calc(100dvh - 64px); overflow-y: auto; padding: 6px; background: #fffefa; border: 1px solid #dddccf; border-radius: 8px; box-shadow: 0 10px 30px #37402720; }
 .actions-panel button { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 10px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; text-align: left; }
 .actions-panel button:hover:not(:disabled) { background: #edeee4; }
 .diagram-settings { margin: 8px 0 0; padding: 8px; border: 0; border-top: 1px solid #dddccf; font-size: 12px; }
 .diagram-settings legend { padding: 0 4px; color: #727c6e; }.diagram-settings label { display: flex; align-items: center; gap: 8px; cursor: pointer; }.diagram-settings input { margin: 0; }
+.recency-setting { margin-top: 12px; }
+.recency-label { display: block; min-height: 32px; color: #4e574a; line-height: 16px; }
+.recency-scale { display: grid; gap: 3px; }
+.recency-band { display: block; height: 4px; border-radius: 2px; }
+.recency-band-done { background: linear-gradient(to right, #c7e8a7 0 var(--recency-position), #e6f3d7 var(--recency-position) 100%); }
+.recency-band-open { background: linear-gradient(to right, #ffe3a1 0 var(--recency-position), #fff1cf var(--recency-position) 100%); }
+.recency-scale input[type="range"] { width: 100%; height: 16px; margin: 0; cursor: pointer; accent-color: #5c704f; }
+.recency-endpoints { display: flex; justify-content: space-between; margin-top: 2px; color: #7b8376; font-size: 10px; }
 kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding: 2px 5px; border-radius: 4px; color: #8b9185; font-weight: 400; white-space: nowrap; }
 .delete-button { color: #aa6953; }
 .file-trigger { padding: 0; border: 0; }
@@ -151,6 +159,10 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .card-parameters-dialog .dialog-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
 .card-parameters-dialog .dialog-actions button { padding: 7px 10px; border: 1px solid #b7bcae; border-radius: 5px; background: #edf0e5; font-size: 13px; line-height: 18px; }
 .card-parameters-dialog .dialog-actions .delete-button { color: #8f3028; background: transparent; }
+.card-metadata { display: grid; gap: 8px; margin: 0 0 18px; padding: 12px; border-radius: 6px; background: #f3f3ec; }
+.card-metadata div { display: grid; grid-template-columns: 125px minmax(0, 1fr); gap: 10px; }
+.card-metadata dt { color: #6b7466; font-size: 13px; }
+.card-metadata dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .dialog-actions-spacer { flex: 1; }
 .parameter-error { margin: 7px 0 0; color: #8f3028; font-size: 13px; }
 .text-conflict-dialog { width: min(680px, calc(100% - 24px)); }
@@ -174,6 +186,8 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .react-flow__node-cell { border-radius: 9px; width: 280px; }
 .cell { --cell-accent: #a86b08; --cell-halo: #edac2733; position: relative; cursor: grab; width: 280px; min-height: 44px; background: #ffe3a1; border: 1px solid #e2b65b; border-radius: 9px; padding: 8px 10px 10px; box-shadow: 0 4px 12px #41472e08; transition: border-color .15s, box-shadow .15s; }
 .cell-done { --cell-accent: #48782c; --cell-halo: #628c3933; background: #c7e8a7; border-color: #90b86c; }
+.cell-recent { background: #fff1cf; border-color: #ecd6a3; }
+.cell-done.cell-recent { background: #e6f3d7; border-color: #c4dbad; }
 /* Внешняя обводка усиливает рамку, не меняя размеры карточки и переносы текста. */
 .cell-active, .cell-editing { border-color: var(--cell-accent); box-shadow: 0 0 0 2px var(--cell-accent), 0 0 0 5px var(--cell-halo), var(--cell-raised-shadow, 0 6px 16px #41472e24); }
 .cell-text, .cell-editor { font-size: 15px; line-height: 1.5; min-height: 24px; overflow-wrap: anywhere; white-space: pre-wrap; text-align: var(--cell-text-align, left); color: #20251c; }

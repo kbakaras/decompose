@@ -827,7 +827,7 @@ test('the same invitation waits for its owner and reopens a fresh generation wit
     await page.getByRole('button', { name: 'Схемы', exact: true }).click()
     await page.getByRole('button', { name: 'Поделиться сессией' }).click()
     await page.getByRole('button', { name: 'Завершить сессию' }).click()
-    await expect(page.locator('.file-info')).toContainText('ссылка сохранена')
+    await expect(page.locator('.file-info')).toContainText('Ссылка сохранена')
     await expect(stale.getByRole('alert')).toContainText('завершена')
     const waiting = await context.newPage(); await waiting.goto(invite)
     await expect(waiting.locator('.loading')).toContainText('Ожидаем владельца файла')

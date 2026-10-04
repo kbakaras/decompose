@@ -3,7 +3,14 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createBackend } from '../../src/server/app'
-import { projectTree, readTextAlign, ROOT_ID, TreeCommands } from '../../src/domain'
+import {
+  getStructures,
+  projectTree,
+  readNodeUpdate,
+  readTextAlign,
+  ROOT_ID,
+  TreeCommands,
+} from '../../src/domain'
 import { normalizeTrackerKey, trackerLabel, trackerSearch, type TrackerPage, type TrackerSummary } from '../../src/shared/tracker'
 import { parseDiagramRoute } from '../../src/shared/diagram-route'
 import { TEST_CLIENT_DIR } from './helpers'
@@ -35,7 +42,14 @@ it('creates exactly one durable tracker document and derives its title from the 
     for (const key of ['bad', 'MC--1', '1MC-1', 'A'.repeat(100) + '-1']) {
       expect((await fetch(`${url}/api/tracker/${key}`, { method: 'POST' })).status).toBe(400)
     }
-    const responses = await Promise.all(Array.from({ length: 12 }, (_, index) => fetch(`${url}/api/tracker/${index % 2 ? 'MC-99636' : 'mc-99636'}`, { method: 'POST' })))
+    const responses = await Promise.all(Array.from({ length: 12 }, (_, index) => fetch(
+      `${url}/api/tracker/${index % 2 ? 'MC-99636' : 'mc-99636'}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author: 'Анна' }),
+      },
+    )))
     expect(responses.filter(response => response.status === 201)).toHaveLength(1)
     const items = await Promise.all(responses.map(response => response.json() as Promise<TrackerSummary>))
     expect(new Set(items.map(item => item.id)).size).toBe(1)
@@ -44,6 +58,7 @@ it('creates exactly one durable tracker document and derives its title from the 
     expect(await get('/api/diagrams')).toEqual([])
     const live = await backend.collaboration.openDirectConnection(task.id)
     expect(projectTree(live.document!).nodes.get(ROOT_ID)?.text).toBe('MC-99636')
+    expect(readNodeUpdate(getStructures(live.document!).nodes.get(ROOT_ID)!)).toMatchObject({ by: 'Анна' })
     expect(readTextAlign(live.document!)).toBe('center')
     const commands = new TreeCommands(live.document!)
     commands.setText(ROOT_ID, '  Починить\nотчёт Ёж  ')

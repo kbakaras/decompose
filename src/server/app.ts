@@ -8,7 +8,7 @@ import express, { type ErrorRequestHandler } from 'express'
 import * as Y from 'yjs'
 import { Server } from '@hocuspocus/server'
 import { TrackerStorage } from './tracker-storage'
-import { createImportedDocument, initializeDocument, getStructures, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
+import { createImportedDocument, initializeDocument, getStructures, normalizeUpdateAuthor, readText, ROOT_ID, SCHEMA_VERSION } from '../domain'
 import { diagramTitle, normalizeTitle, isDiagramId, type DiagramSummary } from '../shared/diagrams'
 import { ImportError, IMPORT_JSON_LIMIT } from '../shared/diagram-import'
 import { normalizeTrackerKey } from '../shared/tracker'
@@ -60,7 +60,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     },
     async afterLoadDocument({ document }) {
       const version = getStructures(document).meta.get('schemaVersion')
-      if (version !== undefined && version !== 1 && version !== SCHEMA_VERSION) {
+      if (version !== undefined && version !== 1 && version !== 2 && version !== SCHEMA_VERSION) {
         throw new Error('Неподдерживаемая версия документа')
       }
       initializeDocument(document)
@@ -183,6 +183,7 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   })
   app.post('/api/diagrams', (request, response) => {
     const title = typeof request.body?.title === 'string' ? normalizeTitle(request.body.title) : ''
+    const author = normalizeUpdateAuthor(request.body?.author)
     if (!title || title.length > 500) {
       response.status(400).json({ error: 'Название должно содержать от 1 до 500 символов' })
       return
@@ -190,7 +191,10 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
     const id = createUuid()
     const doc = new Y.Doc()
     try {
-      initializeDocument(doc, 'center')
+      initializeDocument(doc, 'center', author ? {
+        updated: { at: Date.now(), by: author },
+        contentRevision: createUuid(),
+      } : {})
       getStructures(doc).nodes.get(ROOT_ID)!.set('text', title)
       storage.db!.prepare('INSERT INTO documents (name, data) VALUES (?, ?)').run(id, Buffer.from(Y.encodeStateAsUpdate(doc)))
     } finally { doc.destroy() }
@@ -219,7 +223,11 @@ export function createBackend(options: { dataDir: string; clientDir: string }) {
   app.post('/api/tracker/:key', (request, response) => {
     const key = normalizeTrackerKey(request.params.key)
     if (!key) { response.status(400).json({ error: 'Некорректный ключ задачи' }); return }
-    const { item, created } = storage.ensureTracker(key, request.body?.recreateDeletedId)
+    const { item, created } = storage.ensureTracker(
+      key,
+      request.body?.recreateDeletedId,
+      normalizeUpdateAuthor(request.body?.author),
+    )
     response.status(created ? 201 : 200).json(item)
   })
   app.use('/api', (_request, response) => { response.status(404).json({ error: 'Неизвестный API-маршрут' }) })

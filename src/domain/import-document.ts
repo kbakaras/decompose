@@ -8,6 +8,7 @@ import { createNodeRecord, getStructures, ROOT_ID, SCHEMA_VERSION, type OrderEnt
 export function createImportedDocument(value: unknown, defaultTextAlign?: TextAlign): Y.Doc {
   const native = value && typeof value === 'object' && 'format' in value ? validateDiagramFile(value) : null
   const tree = validateImport(native ?? value, native ? Infinity : undefined)
+  const nativeById = new Map(native?.nodes.map(node => [node.id, node]) ?? [])
   const doc = new Y.Doc()
   const { meta, nodes, orders } = getStructures(doc)
   const ids = new Map(tree.nodes.map(node => [node.id,
@@ -24,7 +25,18 @@ export function createImportedDocument(value: unknown, defaultTextAlign?: TextAl
     if (textAlign !== undefined) getStructures(doc).settings.set('textAlign', textAlign)
     for (const node of tree.nodes) {
       const id = ids.get(node.id)!
-      nodes.set(id, createNodeRecord(node.text, node.status, placements.get(node.id) ?? null, node.targetTrackerKey))
+      const source = nativeById.get(node.id)
+      nodes.set(id, createNodeRecord(
+        node.text,
+        node.status,
+        placements.get(node.id) ?? null,
+        node.targetTrackerKey,
+        native ? {
+          updated: source?.updated,
+          contentRevision: source?.contentRevision,
+          statusRestore: source?.statusRestore,
+        } : {},
+      ))
       const entries = new Y.Array<OrderEntry>()
       entries.push(node.children.map(child => ({ nodeId: ids.get(child)!, placementId: placements.get(child)!.placementId })))
       orders.set(id, entries)

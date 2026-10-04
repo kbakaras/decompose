@@ -1,10 +1,11 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import type { Session } from './session'
 import { downloadDiagram, readDiagramText } from './diagram-file'
-import { parseDiagramFile, type DiagramFile } from '../shared/diagram-file'
+import { parseDiagramFile, stampDiagramMetadata, validateDiagramFile, type DiagramFile } from '../shared/diagram-file'
 import { diagramUrl, isDiagramId } from '../shared/diagrams'
 import { appUrl } from './app-url'
 import { readYedFile } from './yed-import'
+import { browserIdentity } from './identity'
 
 export type FileAction = 'new' | 'replace'
 export interface FileActionsHandle { open(mode: FileAction): void }
@@ -17,6 +18,7 @@ export function FileActions({ ref, returnFocus, reportError, session, title = ''
   const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null)
   const mode = useRef<FileAction>('new')
   const [file, setFile] = useState<DiagramFile | null>(null), [fileName, setFileName] = useState('')
+  const [fileNeedsMetadata, setFileNeedsMetadata] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const [showProgress, setShowProgress] = useState(false)
   const lifetime = useRef<AbortController | null>(null), running = useRef(false)
@@ -46,16 +48,18 @@ export function FileActions({ ref, returnFocus, reportError, session, title = ''
     running.current = true; setBusy(true); reportError(null)
     const action = mode.current
     try {
-      const value: DiagramFile = /\.graphml$/i.test(selected.name)
-        ? { format: 'decompose', version: 1, ...await readYedFile(selected), settings: { textAlign: action === 'new' ? 'center' : 'left' } }
+      const graphml = /\.graphml$/i.test(selected.name)
+      const value: DiagramFile = graphml
+        ? validateDiagramFile({ format: 'decompose', version: 1, ...await readYedFile(selected), settings: { textAlign: action === 'new' ? 'center' : 'left' } })
         : parseDiagramFile(await readDiagramText(selected))
       lifetime.current?.signal.throwIfAborted()
-      if (action === 'replace') { setFile(value); setFileName(selected.name) } else await importFile(value, action)
+      if (action === 'replace') { setFile(value); setFileName(selected.name); setFileNeedsMetadata(graphml) }
+      else await importFile(value, action, graphml)
     } catch (error) {
       if (!lifetime.current?.signal.aborted) reportError(error instanceof Error ? error.message : 'Ошибка загрузки.')
     } finally { running.current = false; setBusy(false); returnFocus() }
   }
-  async function importFile(value: DiagramFile, action: FileAction) {
+  async function importFile(value: DiagramFile, action: FileAction, needsMetadata = false) {
     if (action === 'replace' && !session) return
     running.current = true; setBusy(true); setError('')
     try {
@@ -64,9 +68,10 @@ export function FileActions({ ref, returnFocus, reportError, session, title = ''
       lifetime.current?.signal.throwIfAborted()
       if (action === 'replace') dialog.current?.showModal()
       if (!accepted) return
+      const imported = needsMetadata ? stampDiagramMetadata(value, browserIdentity().name!) : value
       const response = await fetch(appUrl(action === 'replace' ? 'api/diagrams/' + session!.id + '/replace' : 'api/diagrams/import'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action === 'replace' ? { generation: session!.generation, file: value } : value),
+        body: JSON.stringify(action === 'replace' ? { generation: session!.generation, file: imported } : imported),
         signal: AbortSignal.any([AbortSignal.timeout(30000), ...(lifetime.current ? [lifetime.current.signal] : [])]),
       })
       const result = await response.json()
@@ -98,7 +103,7 @@ export function FileActions({ ref, returnFocus, reportError, session, title = ''
       {error && <p role="alert">{error}</p>}
       <div className="dialog-actions">
         <button disabled={busy} onClick={() => { try { downloadDiagram(session.doc, title) } catch (error) { setError(String(error)) } }}>Скачать прежнюю схему</button>
-        <button className="danger-button" disabled={busy || !file} onClick={() => { if (file && !running.current) void importFile(file, 'replace') }}>{busy ? 'Ожидаем синхронизацию' : 'Заменить схему'}</button>
+        <button className="danger-button" disabled={busy || !file} onClick={() => { if (file && !running.current) void importFile(file, 'replace', fileNeedsMetadata) }}>{busy ? 'Ожидаем синхронизацию' : 'Заменить схему'}</button>
         <button disabled={busy} onClick={() => setFile(null)}>Отмена</button>
       </div>
     </dialog>}

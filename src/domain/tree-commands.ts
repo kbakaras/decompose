@@ -6,12 +6,18 @@ import {
   createNodeRecord,
   getStructures,
   normalizeText,
+  normalizeUpdateAuthor,
+  readContentRevision,
+  readNodeUpdate,
   readPlacement,
+  readStatusRestore,
   readStatus,
   readTextAlign,
   type TextAlign,
   type NodeId,
+  type NodeMetadata,
   type NodeRecord,
+  type NodeUpdate,
   type OrderEntry,
   type Placement,
 } from './schema'
@@ -24,6 +30,7 @@ import {
 import { validateSubtreeSnapshot, type SubtreeSnapshot } from './subtree'
 
 export type IdFactory = () => string
+export type ChangeFactory = () => NodeUpdate | null
 
 export class CommandOrigin {
   constructor(
@@ -51,6 +58,7 @@ export class TreeCommands {
   constructor(
     private readonly doc: Y.Doc,
     private readonly createId: IdFactory = createUuid,
+    private readonly change: ChangeFactory = () => null,
   ) {}
 
   createChild(parentId: NodeId, text = ''): NodeId {
@@ -73,13 +81,42 @@ export class TreeCommands {
     const node = this.requireRecord(nodeId)
     const normalized = normalizeText(text)
     if (node.get('text') === normalized) return
-    this.doc.transact(() => node.set('text', normalized), new CommandOrigin('set-text', nodeId))
+    this.doc.transact(() => {
+      node.set('text', normalized)
+      const update = this.nextUpdate()
+      if (update) {
+        node.set('updated', update)
+        node.set('contentRevision', this.uniqueId('revision'))
+        node.delete('statusRestore')
+      }
+    }, new CommandOrigin('set-text', nodeId))
   }
 
   toggleStatus(nodeId: NodeId): void {
     const node = this.requireRecord(nodeId)
     this.doc.transact(() => {
-      node.set('status', readStatus(node) === 'open' ? 'done' : 'open')
+      const currentStatus = readStatus(node)
+      const nextStatus = currentStatus === 'open' ? 'done' : 'open'
+      const update = this.nextUpdate()
+      if (update) {
+        const existingRevision = readContentRevision(node)
+        const revision = existingRevision ?? this.uniqueId('revision')
+        const restore = readStatusRestore(node)
+        if (!existingRevision) node.set('contentRevision', revision)
+        if (restore?.status === nextStatus && restore.contentRevision === revision) {
+          if (restore.updated) node.set('updated', restore.updated)
+          else node.delete('updated')
+          node.delete('statusRestore')
+        } else {
+          node.set('statusRestore', {
+            status: currentStatus,
+            updated: readNodeUpdate(node),
+            contentRevision: revision,
+          })
+          node.set('updated', update)
+        }
+      }
+      node.set('status', nextStatus)
     }, new CommandOrigin('toggle-status', nodeId))
   }
 
@@ -232,7 +269,7 @@ export class TreeCommands {
       for (const node of snapshot.nodes) {
         const id = ids.get(node.id)!
         const placement = placements.get(node.id)!
-        nodes.set(id, createNodeRecord(node.text, node.status, placement, node.targetTrackerKey))
+        nodes.set(id, createNodeRecord(node.text, node.status, placement, node.targetTrackerKey, this.newNodeMetadata()))
         const order = new Y.Array<OrderEntry>()
         order.push(node.children.map(child => ({
           nodeId: ids.get(child)!,
@@ -272,7 +309,7 @@ export class TreeCommands {
     // Raw-записи живут независимо от undo создания, чтобы не потерять чужие правки.
     const birthMarker = `birth:${nodeId}`
     this.doc.transact(() => {
-      nodes.set(nodeId, createNodeRecord(text, 'open', placement))
+      nodes.set(nodeId, createNodeRecord(text, 'open', placement, undefined, this.newNodeMetadata()))
       orders.set(nodeId, new Y.Array<OrderEntry>())
       deletions.set(birthMarker, nodeId)
     }, 'seed-node')
@@ -350,7 +387,20 @@ export class TreeCommands {
     ))
   }
 
-  private uniqueId(kind: 'node' | 'placement' | 'operation'): string {
+  private nextUpdate(): NodeUpdate | null {
+    const update = this.change()
+    const by = normalizeUpdateAuthor(update?.by)
+    return update && Number.isSafeInteger(update.at) && update.at >= 0 && by
+      ? { at: update.at, by }
+      : null
+  }
+
+  private newNodeMetadata(): NodeMetadata {
+    const updated = this.nextUpdate()
+    return updated ? { updated, contentRevision: this.uniqueId('revision') } : {}
+  }
+
+  private uniqueId(kind: 'node' | 'placement' | 'operation' | 'revision'): string {
     const { nodes } = getStructures(this.doc)
     let id = this.createId()
     while (kind === 'node' && nodes.has(id)) id = this.createId()

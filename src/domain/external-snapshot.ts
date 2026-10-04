@@ -41,8 +41,18 @@ export function applyExternalSnapshot(doc: Y.Doc, value: unknown): DiagramFile {
         node.set('deleted', false)
         if (source.targetTrackerKey) node.set('targetTrackerKey', source.targetTrackerKey)
         else node.delete('targetTrackerKey')
+        if (source.updated) node.set('updated', source.updated)
+        else node.delete('updated')
+        if (source.contentRevision) node.set('contentRevision', source.contentRevision)
+        else node.delete('contentRevision')
+        if (source.statusRestore) node.set('statusRestore', source.statusRestore)
+        else node.delete('statusRestore')
       } else {
-        nodes.set(source.id, createNodeRecord(source.text, source.status, placement, source.targetTrackerKey))
+        nodes.set(source.id, createNodeRecord(source.text, source.status, placement, source.targetTrackerKey, {
+          updated: source.updated,
+          contentRevision: source.contentRevision,
+          statusRestore: source.statusRestore,
+        }))
       }
       let order = orders.get(source.id)
       if (!order) { order = new Y.Array<OrderEntry>(); orders.set(source.id, order) }

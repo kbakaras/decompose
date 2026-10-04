@@ -40,7 +40,12 @@ export class Session {
   private rosterMembers: ParticipantRosterMember[] = []
   private unsubscribeIdentity: () => void
   constructor(readonly id: string, readonly doc: Y.Doc, readonly source: 'system' | 'file' | 'guest' = 'system', public tracker?: TrackerSummary) {
-    browserIdentity(); this.history = new DocumentHistory(doc); this.commands = new TreeCommands(doc)
+    browserIdentity()
+    this.history = new DocumentHistory(doc)
+    this.commands = new TreeCommands(doc, undefined, () => {
+      const name = browserIdentity().name
+      return name ? { at: Date.now(), by: name } : null
+    })
     this.unsubscribeIdentity = subscribeIdentity(this.publishIdentity)
     window.addEventListener('pagehide', this.pagehide, true); window.addEventListener('pageshow', this.pageshow)
     document.addEventListener('visibilitychange', this.visibilitychange)
