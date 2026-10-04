@@ -122,6 +122,28 @@ test('new cells are never shown at the origin while waiting for measured layout'
   await page.keyboard.press('Control+Enter')
 })
 
+test('selection preserves the viewport while a new card is brought into view', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 600 })
+  await open(page)
+  await cell(page, 'root').click()
+  for (let depth = 1; depth <= 5; depth++) {
+    await create(page, 'Tab', `Уровень ${depth}`)
+  }
+
+  const viewport = page.locator('.react-flow__viewport')
+  await page.waitForTimeout(250)
+  const beforeSelection = await viewport.getAttribute('style')
+  for (let depth = 0; depth < 5; depth++) await page.keyboard.press('ArrowLeft')
+  await expect(cell(page, 'root')).toHaveAttribute('data-active', 'true')
+  await page.waitForTimeout(250)
+  expect(await viewport.getAttribute('style')).toBe(beforeSelection)
+
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('textbox')).toBeFocused()
+  await expect.poll(() => viewport.getAttribute('style')).not.toBe(beforeSelection)
+  await expect(page.getByRole('textbox')).toBeInViewport()
+})
+
 async function dragTo(page: Page, sourceId: string, targetId: string, side: 'before' | 'after', fromPadding = false) {
   await page.getByRole('button', { name: 'Вся схема' }).click()
   const source = cell(page, sourceId)

@@ -125,7 +125,7 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
   const [positions, setPositions] = useState(new Map<string, { x: number; y: number }>())
   const [layoutReady, setLayoutReady] = useState(false)
   const initialFit = useRef(false)
-  const lastFocusTarget = useRef<{ id: string; x: number; y: number; height: number } | null>(null)
+  const lastNewEditTarget = useRef<{ id: string; x: number; y: number; height: number } | null>(null)
   const [drag, setDrag] = useState<DragPreview | null>(null)
   const dragRef = useRef<DragPreview | null>(null)
   const updateDrag = useCallback((next: DragPreview | null) => {
@@ -280,22 +280,22 @@ function Workspace({ session, header, switching, navigate: navigateToDiagram, re
     return () => { stale = true }
   }, [tree, heights, ready, drag?.phase, updateDrag, flow])
   useEffect(() => {
-    if (!layoutReady || drag) return
+    if (!layoutReady || drag || !edit?.isNew || edit.id !== active) return
     const position = positions.get(active)
     const bounds = canvas.current?.getBoundingClientRect()
     if (!position || !bounds) return
     const target = { id: active, ...position, height: heights.get(active) ?? NODE_MIN_HEIGHT }
-    const previousTarget = lastFocusTarget.current
-    lastFocusTarget.current = target
-    // Первый показ уже вписан целиком. Центрируем только после изменений цели.
-    if (!previousTarget || (previousTarget.id === target.id && previousTarget.x === target.x
-      && previousTarget.y === target.y && previousTarget.height === target.height)) return
+    const previousTarget = lastNewEditTarget.current
+    lastNewEditTarget.current = target
+    // Держим видимым редактор новой карточки, но не двигаем холст при выборе.
+    if (previousTarget && previousTarget.id === target.id && previousTarget.x === target.x
+      && previousTarget.y === target.y && previousTarget.height === target.height) return
     const center = { x: position.x + NODE_WIDTH / 2, y: position.y + target.height / 2 }
     const point = flow.flowToScreenPosition(center)
     if (point.x < bounds.left + 150 || point.x > bounds.right - 150 || point.y < bounds.top + 80 || point.y > bounds.bottom - 80) {
       void flow.setCenter(center.x, center.y, { zoom: flow.getZoom(), duration: 150 })
     }
-  }, [active, positions, heights, flow, drag, layoutReady])
+  }, [active, positions, heights, flow, drag, layoutReady, edit?.id, edit?.isNew])
 
   const run = useCallback((operation: () => void) => {
     try { operation(); setNotice(null); return true }
