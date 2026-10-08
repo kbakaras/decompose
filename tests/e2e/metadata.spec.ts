@@ -30,6 +30,31 @@ test('F4 shows update metadata and the global recency slider highlights recent c
   await expect(root).toHaveAttribute('data-recent', 'false')
   await expect(page.locator('.recency-band-done')).toHaveCSS('background-image', /rgb\(199, 232, 167\).*rgb\(230, 243, 215\)/)
   await expect(page.locator('.recency-band-open')).toHaveCSS('background-image', /rgb\(255, 227, 161\).*rgb\(255, 241, 207\)/)
+  const scaleGeometry = await page.locator('.recency-scale').evaluate(element => {
+    const setting = element.closest('.recency-setting')!
+    const previous = setting.previousElementSibling!.getBoundingClientRect()
+    const label = setting.querySelector('.recency-label')!.getBoundingClientRect()
+    const done = element.querySelector('.recency-band-done')!.getBoundingClientRect()
+    const open = element.querySelector('.recency-band-open')!.getBoundingClientRect()
+    const input = element.querySelector('input')!.getBoundingClientRect()
+    const endpoints = setting.querySelector('.recency-endpoints')!.getBoundingClientRect()
+    return {
+      bandCount: element.querySelectorAll('.recency-band').length,
+      previousGap: label.top - previous.bottom,
+      labelGap: done.top - label.bottom,
+      doneHeight: done.height,
+      openHeight: open.height,
+      gap: open.top - done.bottom,
+      inputHeight: input.height,
+      inputPosition: getComputedStyle(element.querySelector('input')!).position,
+      endpointsGap: endpoints.top - open.bottom,
+    }
+  })
+  expect(scaleGeometry).toEqual({
+    bandCount: 2, previousGap: 14, labelGap: 10,
+    doneHeight: 7, openHeight: 7, gap: 0,
+    inputHeight: 28, inputPosition: 'absolute', endpointsGap: 12,
+  })
   await slider.fill('10')
   await expect(slider).toHaveAttribute('aria-valuetext', 'Изменения за последний день')
   await expect(root).toHaveAttribute('data-recent', 'true')
