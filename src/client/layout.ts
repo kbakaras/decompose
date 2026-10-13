@@ -2,7 +2,7 @@ import ELK from 'elkjs/lib/elk.bundled.js'
 import type { TreeProjection } from '../domain'
 
 export const NODE_WIDTH = 280
-export const NODE_MIN_HEIGHT = 44
+export const NODE_MIN_HEIGHT = 32
 const elk = new ELK()
 
 export async function layoutTree(tree: TreeProjection, heights: ReadonlyMap<string, number>) {

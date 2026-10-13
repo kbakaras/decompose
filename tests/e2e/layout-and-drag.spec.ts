@@ -199,7 +199,7 @@ async function dragAsChild(page: Page, sourceId: string, targetId: string) {
   }
 }
 
-test('decorative handles do not intercept the pointer or offer connections', async ({ page }) => {
+test('connection handles stay invisible and do not intercept the pointer', async ({ page }) => {
   const response = await page.request.post('/api/diagrams', { data: { title: 'Декоративные точки' } })
   const { id } = await response.json()
   await page.goto(`/?diagram=${id}`)
@@ -215,12 +215,13 @@ test('decorative handles do not intercept the pointer or offer connections', asy
     const cursor = nodeId === active ? 'move' : 'grab'
     const handles = card.locator('.react-flow__handle')
     for (const handle of await handles.all()) {
+      await expect(handle).toHaveCSS('opacity', '0')
       await expect(handle).not.toHaveClass(/connectionindicator/)
       await expect(handle).toHaveCSS('pointer-events', 'none')
       await expect(handle).toHaveCSS('cursor', cursor)
       const bounds = (await handle.boundingBox())!
       const isLeft = await handle.evaluate(element => element.classList.contains('react-flow__handle-left'))
-      // Проверяем половину декоративной точки, лежащую внутри карточки.
+      // Проверяем половину невидимого крепления, лежащую внутри карточки.
       const point = { x: bounds.x + bounds.width * (isLeft ? 0.75 : 0.25), y: bounds.y + bounds.height / 2 }
       await page.mouse.move(point.x, point.y)
       const hit = await page.evaluate(({ x, y }) => {

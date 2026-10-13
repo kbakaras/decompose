@@ -191,18 +191,18 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 }
 .canvas { position: relative; flex: 1; min-height: 0; outline: none; }.canvas:focus-visible { box-shadow: inset 0 0 0 1px #c7cdbb; }
 .react-flow__node-cell { border-radius: 9px; width: 280px; }
-.cell { --cell-accent: #a86b08; --cell-halo: #edac2733; position: relative; cursor: grab; width: 280px; min-height: 44px; background: #ffe3a1; border: 1px solid #e2b65b; border-radius: 9px; padding: 8px 10px 10px; box-shadow: 0 4px 12px #41472e08; transition: border-color .15s, box-shadow .15s; }
+.cell { --cell-accent: #a86b08; --cell-halo: #edac2733; position: relative; cursor: grab; width: 280px; min-height: 32px; background: #ffe3a1; border: 1px solid #e2b65b; border-radius: 9px; padding: 4px 5px; box-shadow: 0 4px 12px #41472e08; transition: border-color .15s, box-shadow .15s; }
 .cell-done { --cell-accent: #48782c; --cell-halo: #628c3933; background: #c7e8a7; border-color: #90b86c; }
 .cell-recent { background: #fff1cf; border-color: #ecd6a3; }
 .cell-done.cell-recent { background: #e6f3d7; border-color: #c4dbad; }
 /* Внешняя обводка усиливает рамку, не меняя размеры карточки и переносы текста. */
 .cell-active, .cell-editing { border-color: var(--cell-accent); box-shadow: 0 0 0 2px var(--cell-accent), 0 0 0 5px var(--cell-halo), var(--cell-raised-shadow, 0 6px 16px #41472e24); }
-.cell-text, .cell-editor { font-size: 15px; line-height: 1.5; min-height: 24px; overflow-wrap: anywhere; white-space: pre-wrap; text-align: var(--cell-text-align, left); color: #20251c; }
+.cell-text, .cell-editor { font-size: 17px; line-height: 1.25; min-height: 22px; overflow-wrap: anywhere; white-space: pre-wrap; text-align: var(--cell-text-align, left); color: #20251c; }
 .cell-linked:not(.cell-editing) .cell-text { padding-right: 22px; }
 .cell-link { position: absolute; top: 4px; right: 5px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; color: #52614d; opacity: .55; }
 .cell-link:hover, .cell-active .cell-link, .cell-link:focus-visible { background: #fffefa80; color: var(--cell-accent); opacity: 1; }
 .cell-link:focus-visible { outline: 2px solid var(--cell-accent); outline-offset: 1px; }
-.cell-editor { cursor: text; border: 0; outline: 0; padding: 0; resize: none; width: 100%; display: block; background: transparent; overflow: hidden; min-height: 24px; }
+.cell-editor { cursor: text; border: 0; outline: 0; padding: 0; resize: none; width: 100%; display: block; background: transparent; overflow: hidden; min-height: 22px; }
 .react-flow__node.react-flow__node-cell { cursor: grab; }
 .react-flow__node.react-flow__node-cell.draggable, .cell-draggable, .cell-dragging { cursor: move; }
 .cell-draggable { user-select: none; }
@@ -219,7 +219,7 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid #dcded4; padding:
 .activity-card .cell-link:hover, .activity-card .cell-link:focus-visible { color: var(--cell-accent); opacity: 1; }
 .activity-canvas .react-flow__pane.dragging .activity-card { cursor: grabbing; }
 .activity-title { flex: 1; }
-.react-flow__handle { background: #b7bcae; border: 2px solid #f6f4ed; width: 7px; height: 7px; pointer-events: none; cursor: inherit; }
+.react-flow__handle { opacity: 0; width: 7px; height: 7px; pointer-events: none; cursor: inherit; }
 .react-flow__attribution { font-size: 8px; background: transparent; opacity: .55; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .notice { position: absolute; left: 12px; top: 12px; max-width: min(420px, calc(100% - 24px)); display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #e2b65b; border-radius: 8px; background: #fff5d9; font-size: 12px; z-index: 10; box-shadow: 0 5px 20px #37402716; }
