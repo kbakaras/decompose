@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import * as Y from 'yjs'
 import { initializeDocument, ROOT_ID, TreeCommands, projectTree } from '../../src/domain'
-import { layoutTree, NODE_MIN_HEIGHT } from '../../src/client/layout'
+import { layoutTree } from '../../src/client/layout'
 
 it('preserves sibling order across unequal sizes and reordered subtrees', async () => {
   const doc = new Y.Doc()
@@ -71,9 +71,11 @@ it('avoids flipping ancestor alignment when adjacent uneven subtrees are swapped
   const after = await layoutTree(tree, heights)
 
   // Для этого примера допускаем небольшое уплотнение, но не смену края выравнивания.
+  // Предел относится к заданным высотам примера и не зависит от оформления карточек.
+  const maxAncestorShift = 44
   for (const name of ['root', 'a', 'b', 'c']) {
     const id = ids.get(name)!
-    expect(Math.abs(after.get(id)!.y - before.get(id)!.y)).toBeLessThanOrEqual(NODE_MIN_HEIGHT)
+    expect(Math.abs(after.get(id)!.y - before.get(id)!.y)).toBeLessThanOrEqual(maxAncestorShift)
     expect(after.get(id)!.x).toBe(before.get(id)!.x)
   }
   for (const [parent, siblings] of tree.children) {
